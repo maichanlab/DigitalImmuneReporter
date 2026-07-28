@@ -1,4 +1,5 @@
 .venv/*
+output/*
 *.pth
 *.bin
 *.json
