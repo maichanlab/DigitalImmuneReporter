@@ -1,9 +1,12 @@
+import logging
 from pathlib import Path
 
 import cv2
 import numpy as np
 from openslide import OpenSlide
 from shapely.geometry import Polygon
+
+logger = logging.getLogger(__name__)
 
 
 class WSIPatcher:
@@ -25,7 +28,7 @@ class WSIPatcher:
             for y in range(0, self.height, self.stride)
         ]
         self.number_of_tiles_per_column = len(range(0, self.height, self.stride))
-        print("Number of tiles: ", len(self.tile_coords))
+        logger.info(f"Number of tiles: {len(self.tile_coords)}")
 
         if not contours_geojson_path:
             return
@@ -50,9 +53,9 @@ class WSIPatcher:
                 tile_size,
                 all_tissue_contours,
             )
-            print("Number of tiles after ignoring non-tissue regions: ", len(self.tile_coords))
-        except Exception as e:
-            print(f"Error filtering tiles: {e}")
+            logger.info(f"Number of tiles after ignoring non-tissue regions: {len(self.tile_coords)}")
+        except Exception:
+            logger.exception(f"Error filtering tiles by tissue contours ({contours_geojson_path}); using all {len(self.tile_coords)} tiles instead.")
 
     def __len__(self):
         return len(self.tile_coords)

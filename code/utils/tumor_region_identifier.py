@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -8,6 +9,8 @@ from scipy.ndimage import (
     binary_closing, label as nd_label, binary_dilation,
     binary_fill_holes, distance_transform_edt, binary_opening
 )
+
+logger = logging.getLogger(__name__)
 
 
 class TumorRegionIdentifier:
@@ -111,9 +114,9 @@ class TumorRegionIdentifier:
             - 'in_tumor', 'in_tumor_smoothed', 'in_tumor_core', 'in_tumor_core_filled',
               'in_tumor_core_boundary', 'in_CT', 'in_PT', 'distance_to_boundary'
         """
-        print("\n" + "="*70)
-        print("EXTERNAL BOUNDARY CT/PT DETECTION")
-        print("="*70)
+        logger.info("=" * 70)
+        logger.info("EXTERNAL BOUNDARY CT/PT DETECTION")
+        logger.info("=" * 70)
 
         self._step1_knn_tumor_mask()
         self._step2_morphological_smoothing()
@@ -121,9 +124,9 @@ class TumorRegionIdentifier:
         self._step4_fill_tumor_holes_and_find_boundary()
         self._step5_define_ct_pt()
 
-        print("\n" + "="*70)
-        print("PROCESSING COMPLETE")
-        print("="*70)
+        logger.info("=" * 70)
+        logger.info("PROCESSING COMPLETE")
+        logger.info("=" * 70)
 
         return self.cell_table
 
@@ -132,11 +135,11 @@ class TumorRegionIdentifier:
         Identify a coarse tumor mask using k-nearest neighbors (k-NN) based on initial tumor labels.
         Each cell is classified as tumor if more than 50% of its k nearest neighbors are labeled tumor.
         """
-        print("\n" + "="*70)
-        print(f"STEP 1: k-NN Tumor Mask (k=self.k_neighbors)")
-        print("="*70)
+        logger.info("-" * 70)
+        logger.info(f"STEP 1: k-NN Tumor Mask (k={self.k_neighbors})")
+        logger.info("-" * 70)
 
-        print(f"Building k-NN model with k={self.k_neighbors}...")
+        logger.info(f"Building k-NN model with k={self.k_neighbors}...")
         nbrs = NearestNeighbors(
             n_neighbors=self.k_neighbors,
             algorithm='ball_tree',
@@ -148,16 +151,16 @@ class TumorRegionIdentifier:
         self.cell_table['in_tumor'] = (
             self.cell_table[self.tumor_cell_binary_col].values[all_indices].mean(axis=1) > 0.5
         )
-        print(f"Tumor region: {self.cell_table['in_tumor'].sum():,} cells ({self.cell_table['in_tumor'].sum()/len(self.cell_table)*100:.2f}%)")
+        logger.info(f"Tumor region: {self.cell_table['in_tumor'].sum():,} cells ({self.cell_table['in_tumor'].sum()/len(self.cell_table)*100:.2f}%)")
 
     def _step2_morphological_smoothing(self):
         """
         Apply morphological closing to smooth the coarse tumor mask, with an adaptive kernel
         size based on component dominance.
         """
-        print("\n" + "="*70)
-        print("STEP 2: Morphological Smoothing")
-        print("="*70)
+        logger.info("-" * 70)
+        logger.info("STEP 2: Morphological Smoothing")
+        logger.info("-" * 70)
 
         self.grid_in_tumor = np.zeros((len(self.grid_y_coords), len(self.grid_x_coords)), dtype=np.uint8)
         in_tumor_cells = self.cell_table[self.cell_table['in_tumor']]
@@ -182,26 +185,26 @@ class TumorRegionIdentifier:
             else:
                 k = 5
             self.grid_in_tumor_smoothed = binary_closing(self.grid_in_tumor_binary, structure=np.ones((k, k)))
-            print(f"Found {num_components} components, dominance ratio: {dominance_ratio:.2f}")
-            print(f"Applied {k}x{k} smoothing")
+            logger.info(f"Found {num_components} components, dominance ratio: {dominance_ratio:.2f}")
+            logger.info(f"Applied {k}x{k} smoothing")
         else:
             self.grid_in_tumor_smoothed = binary_closing(self.grid_in_tumor_binary, structure=np.ones((5, 5)))
-            print("Single component detected, applied 5x5 smoothing")
+            logger.info("Single component detected, applied 5x5 smoothing")
 
         self.cell_table['in_tumor_smoothed'] = self.map_grid_to_cells(self.grid_in_tumor_smoothed)
-        print(f"Smoothed tumor cells: {self.cell_table['in_tumor_smoothed'].sum():,}")
-        print(f"Grid resolution: {self.grid_resolution:.2f} um per grid cell")
+        logger.info(f"Smoothed tumor cells: {self.cell_table['in_tumor_smoothed'].sum():,}")
+        logger.info(f"Grid resolution: {self.grid_resolution:.2f} um per grid cell")
 
     def _step3_adaptive_component_selection(self):
         """
         Select tumor core components based on size and dominance.
         """
-        print("\n" + "="*70)
-        print("STEP 3: Adaptive Component Selection")
-        print("="*70)
+        logger.info("-" * 70)
+        logger.info("STEP 3: Adaptive Component Selection")
+        logger.info("-" * 70)
 
         self.labeled_tumor_regions, self.num_regions = nd_label(self.grid_in_tumor_smoothed)
-        print(f"Found {self.num_regions} separate tumor regions")
+        logger.info(f"Found {self.num_regions} separate tumor regions")
 
         if self.num_regions > 1:
             component_sizes = [(self.labeled_tumor_regions == i).sum() for i in range(1, self.num_regions + 1)]
@@ -217,14 +220,14 @@ class TumorRegionIdentifier:
             else:
                 dominance = float('inf')
 
-            print(f"  Dominance ratio: {dominance:.2f}")
-            print(f"  Largest fraction: {largest_fraction:.2f}")
+            logger.info(f"  Dominance ratio: {dominance:.2f}")
+            logger.info(f"  Largest fraction: {largest_fraction:.2f}")
 
             if dominance > 5.0 and largest_fraction > 0.75:
                 self.mode = "single-component"
                 largest_idx = np.argmax(component_sizes) + 1
                 self.grid_tumor_core = (self.labeled_tumor_regions == largest_idx)
-                print("Single-component mode (filtering fragments)")
+                logger.info("Single-component mode (filtering fragments)")
             else:
                 self.mode = "multi-component"
                 size_threshold = largest * 0.50
@@ -235,7 +238,7 @@ class TumorRegionIdentifier:
                         tumor_adaptive |= (self.labeled_tumor_regions == i)
                         kept += 1
                 self.grid_tumor_core = tumor_adaptive
-                print(f"Multi-component mode (kept {kept}/{self.num_regions} components)")
+                logger.info(f"Multi-component mode (kept {kept}/{self.num_regions} components)")
 
             self.dominance_ratio = dominance
         else:
@@ -248,9 +251,9 @@ class TumorRegionIdentifier:
         """
         Fill internal holes in tumor core components and identify the external tumor boundary.
         """
-        print("\n" + "="*70)
-        print("STEP 4: Connectivity-based Boundary Detection")
-        print("="*70)
+        logger.info("-" * 70)
+        logger.info("STEP 4: Connectivity-based Boundary Detection")
+        logger.info("-" * 70)
 
         labeled_tumor, num_comps = nd_label(self.grid_tumor_core)
         self.grid_tumor_filled = np.zeros_like(self.grid_tumor_core, dtype=bool)
@@ -261,8 +264,8 @@ class TumorRegionIdentifier:
             self.grid_tumor_filled |= comp_filled
 
         self.cell_table['in_tumor_core_filled'] = self.map_grid_to_cells(self.grid_tumor_filled)
-        print(f"Tumor core filled: {self.grid_tumor_filled.sum()} grid cells")
-        print(f"Cells in tumor core: {self.cell_table['in_tumor_core_filled'].sum()} cells")
+        logger.info(f"Tumor core filled: {self.grid_tumor_filled.sum()} grid cells")
+        logger.info(f"Cells in tumor core: {self.cell_table['in_tumor_core_filled'].sum()} cells")
 
         grid_non_tumor = ~self.grid_tumor_filled
         labeled_non_tumor, num_non_tumor = nd_label(grid_non_tumor)
@@ -283,9 +286,9 @@ class TumorRegionIdentifier:
         Define Core Tumor (CT) and Peritumoral (PT) regions from the distance transform of
         the tumor external boundary.
         """
-        print("\n" + "="*70)
-        print("STEP 6: Defining CT and PT Regions")
-        print("="*70)
+        logger.info("-" * 70)
+        logger.info("STEP 5: Defining CT and PT Regions")
+        logger.info("-" * 70)
 
         grid_dist = distance_transform_edt(~(self.grid_tumor_external_boundary))
         grid_dist_um = grid_dist * self.grid_resolution
@@ -305,16 +308,16 @@ class TumorRegionIdentifier:
         self.ct_count = self.cell_table['in_CT'].sum()
         self.pt_count = self.cell_table['in_PT'].sum()
 
-        print("\nRegion assignments:")
-        print(f"  CT: {self.ct_count:,} cells")
-        print(f"  PT: {self.pt_count:,} cells")
+        logger.info("Region assignments:")
+        logger.info(f"  CT: {self.ct_count:,} cells")
+        logger.info(f"  PT: {self.pt_count:,} cells")
 
     def plot_ct_pt_regions(self, figsize=(24, 16), dpi=100, save_path=None):
         """
         Plot spatial distribution of tumor regions: all cells, hole-filled tumor core, CT, PT.
         """
         if self.cell_table is None or 'in_CT' not in self.cell_table.columns:
-            print("ERROR: Must call run() first before plotting")
+            logger.error("Must call run() first before plotting")
             return None, None
 
         fig, axes = plt.subplots(3, 2, figsize=figsize)
@@ -371,7 +374,7 @@ class TumorRegionIdentifier:
             save_path = Path(save_path)
             save_path.parent.mkdir(parents=True, exist_ok=True)
             plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
-            print(f"Visualization saved to: {save_path}")
+            logger.info(f"Visualization saved to: {save_path}")
             plt.close(fig)
 
         return fig, axes

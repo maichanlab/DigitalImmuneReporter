@@ -10,6 +10,7 @@ normalized to an OpenSlide-readable format by infer.py's slide_io step) and
 the "under investigation" lymphocyte-cluster analysis left out.
 """
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -31,6 +32,8 @@ from utils.cell_tissue_table_generator import generate_cell_table, generate_tiss
 from utils.cell_density import count_cell_density, count_cell_in_tissue
 from utils.gcross import area_under_g_cross_curve
 from utils.tumor_region_identifier import TumorRegionIdentifier
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_TISSUE_ID2LABEL = {0: "background", 1: "tumor", 2: "stroma", 3: "necrosis", 4: "other"}
 DEFAULT_CELL_ID2LABEL = {1: "neutrophil", 2: "tumor", 3: "lymphocyte", 4: "eosinophil", 5: "plasmacell", 6: "other"}
@@ -67,13 +70,13 @@ class SpatialFeatureComputer:
             if mpp_prop is None:
                 raise ValueError("MPP not found on the slide; pass --mpp explicitly.")
             self.mpp = float(mpp_prop)
-            print("MPP value using OpenSlide:", self.mpp)
+            logger.info(f"MPP value using OpenSlide: {self.mpp}")
 
         self.tissue_id2label = tissue_id2label
         self.cell_id2label = cell_id2label
 
         # Retrieve tissue data
-        print("Loading tissue data")
+        logger.info(f"Loading tissue data from {tissue_mask_path}")
         tissue_mask_path = Path(tissue_mask_path)
         suffix = tissue_mask_path.suffix.lower()
         if suffix == ".png":
@@ -90,19 +93,21 @@ class SpatialFeatureComputer:
             raise ValueError("Tissue mask shape mismatch with H&E")
 
         if tissue_contour_geojson_path:
-            print("Background removal")
+            logger.info(f"Removing background outside tissue contours from {tissue_contour_geojson_path}")
             binary_tissue_mask = convert_geojson_to_mask(tissue_contour_geojson_path, width=tissue_mask_width, height=tissue_mask_height)
             self.tissue_mask = self.tissue_mask * binary_tissue_mask
 
         self.malignant_mask = None
         if malignant_mask_path and Path(malignant_mask_path).exists():
             self.malignant_mask = np.load(malignant_mask_path).astype(np.uint8)
+            logger.info(f"Loaded malignant-region mask from {malignant_mask_path} (used for report visualization only)")
 
         # Retrieve cell data
-        print("Loading cell data")
+        logger.info(f"Loading cell data from {cell_json_path}")
         with open(cell_json_path) as json_file:
             data = json.load(json_file)
             self.cell_data = data["cells"]
+        logger.info(f"Loaded {len(self.cell_data)} cells")
 
     def compute_features(self) -> Dict:
         output = {}
@@ -207,61 +212,62 @@ class SpatialFeatureComputer:
             )
 
         # ----- CT / PT -----
-        analyzer = TumorRegionIdentifier(cell_table, "is_tumor_cell")
-        self.cell_table = analyzer.run()
+        if len(cell_table) >= 20000:
+            analyzer = TumorRegionIdentifier(cell_table, "is_tumor_cell")
+            self.cell_table = analyzer.run()
 
-        total_CT = len(cell_table[cell_table["in_CT"]])
-        total_PT = len(cell_table[cell_table["in_PT"]])
+            total_CT = len(cell_table[cell_table["in_CT"]])
+            total_PT = len(cell_table[cell_table["in_PT"]])
 
-        if total_CT and total_PT:
+            if total_CT and total_PT:
 
-            for cell_type in [
-                "lymphocyte",
-                "eosinophil",
-                "plasmacell",
-                "neutrophil",
-            ]:
+                for cell_type in [
+                    "lymphocyte",
+                    "eosinophil",
+                    "plasmacell",
+                    "neutrophil",
+                ]:
 
-                output[f"{cell_type}_CT"] = (
-                    len(
-                        cell_table[
-                            (cell_table["in_CT"])
-                            & (cell_table["cell_label"] == cell_type)
-                        ]
-                    )
-                    / total_CT
-                )
-
-                output[f"{cell_type}_PT"] = (
-                    len(
-                        cell_table[
-                            (cell_table["in_PT"])
-                            & (cell_table["cell_label"] == cell_type)
-                        ]
-                    )
-                    / total_PT
-                )
-
-                if len(
-                        cell_table[
-                            (cell_table["in_PT"])
-                            & (cell_table["cell_label"] == cell_type)
-                        ]
-                    ):
-                    output[f"{cell_type}_CT/PT_ratio"] = (
+                    output[f"{cell_type}_CT"] = (
                         len(
                             cell_table[
                                 (cell_table["in_CT"])
                                 & (cell_table["cell_label"] == cell_type)
                             ]
-                        ) /
+                        )
+                        / total_CT
+                    )
+
+                    output[f"{cell_type}_PT"] = (
                         len(
                             cell_table[
                                 (cell_table["in_PT"])
                                 & (cell_table["cell_label"] == cell_type)
                             ]
                         )
+                        / total_PT
                     )
+
+                    if len(
+                            cell_table[
+                                (cell_table["in_PT"])
+                                & (cell_table["cell_label"] == cell_type)
+                            ]
+                        ):
+                        output[f"{cell_type}_CT/PT_ratio"] = (
+                            len(
+                                cell_table[
+                                    (cell_table["in_CT"])
+                                    & (cell_table["cell_label"] == cell_type)
+                                ]
+                            ) /
+                            len(
+                                cell_table[
+                                    (cell_table["in_PT"])
+                                    & (cell_table["cell_label"] == cell_type)
+                                ]
+                            )
+                        )
 
         # ----- TSP -----
         try:
@@ -552,8 +558,7 @@ class SpatialFeatureComputer:
         pdf.build(elements)
 
     def run(self):
-        print("Running")
-
+        logger.info("Generating tissue area table...")
         area_table_csv_path = self.output_directory / "area_table.csv"
         self.tissue_area_table = generate_tissue_area_table(
             self.tissue_mask,
@@ -561,7 +566,9 @@ class SpatialFeatureComputer:
             mpp=self.mpp,
         )
         self.tissue_area_table.to_csv(area_table_csv_path, index=False)
+        logger.info(f"Tissue area table saved: {area_table_csv_path}")
 
+        logger.info("Generating cell table (assigning each cell to a tissue region)...")
         cell_table_csv_path = self.output_directory / "cell_table.csv"
         self.cell_table = generate_cell_table(
             cells=self.cell_data,
@@ -570,10 +577,17 @@ class SpatialFeatureComputer:
             tissue_id2label=self.tissue_id2label,
             mpp=self.mpp,
         )
+        logger.info(f"Cell table built: {len(self.cell_table)} cells matched to a tissue region")
 
-        print("Computing features")
+        logger.info("Computing spatial TIME features (densities, G-cross, CT/PT, tumor-stroma %, NLR)...")
         self.features = self.compute_features()
         self.cell_table.to_csv(cell_table_csv_path, index=False)
-        pd.DataFrame(list(self.features.items()), columns=["feature", "value"]).to_csv(self.output_directory / "features.csv", index=False)
-        self.generate_pdf(str(self.output_directory / "digital_immune_report.pdf"))
-        print("All outputs saved to", self.output_directory)
+        logger.info(f"Cell table saved: {cell_table_csv_path}")
+        features_csv_path = self.output_directory / "features.csv"
+        pd.DataFrame(list(self.features.items()), columns=["feature", "value"]).to_csv(features_csv_path, index=False)
+        logger.info(f"Computed {len(self.features)} features. Saved: {features_csv_path}")
+
+        report_path = self.output_directory / "digital_immune_report.pdf"
+        self.generate_pdf(str(report_path))
+        logger.info(f"Report saved: {report_path}")
+        logger.info(f"All outputs saved to {self.output_directory}")

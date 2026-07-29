@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -6,6 +7,8 @@ from PIL import Image
 from mmseg.apis.inference import init_model, inference_model
 
 from .wsi_patcher import WSIPatcher
+
+logger = logging.getLogger(__name__)
 
 
 def model_fn(
@@ -40,11 +43,12 @@ def infer_single_wsi(wsi_path, model, tile_size=1024, output_dir="output", conto
     os.makedirs(output_dir, exist_ok=True)
     output_file_path = os.path.join(output_dir, Path(wsi_path).stem + ".png")
     if os.path.exists(output_file_path):
-        print("Output file path exists, ending processing.")
+        logger.info(f"Output file already exists ({output_file_path}), skipping tissue segmentation.")
         return None
 
     tile_processor = WSIPatcher(wsi_path, tile_size, contours_geojson_path=contours_geojson_path)
     width, height = tile_processor.width, tile_processor.height
+    logger.info(f"Tissue compartment segmentation: {len(tile_processor)} tiles to process (tile_size={tile_size})")
 
     mask = np.zeros((height, width), dtype=np.uint8)
 

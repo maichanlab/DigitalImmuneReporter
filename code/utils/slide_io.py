@@ -6,6 +6,8 @@ import openslide
 from .czi_reader import CZIReader
 from .tiff_wsi_reader import TiffWSIReader
 
+logger = logging.getLogger(__name__)
+
 
 def prepare_openslide_wsi(input_file_path, input_dir, user_input_mpp=None):
     """
@@ -30,20 +32,20 @@ def prepare_openslide_wsi(input_file_path, input_dir, user_input_mpp=None):
     """
     input_file_path = Path(input_file_path)
     try:
-        logging.info(f"Attempting to open slide with OpenSlide: {input_file_path}")
+        logger.info(f"Attempting to open slide with OpenSlide: {input_file_path}")
         slide = openslide.OpenSlide(str(input_file_path))
-        logging.info("Slide opened successfully with OpenSlide")
+        logger.info("Slide opened successfully with OpenSlide")
     except Exception as exc:
-        logging.warning(f"OpenSlide could not open {input_file_path}: {exc}")
-        logging.info("Converting slide to SVS format...")
+        logger.warning(f"OpenSlide could not open {input_file_path}: {exc}")
+        logger.info("Converting slide to SVS format...")
         suffix = input_file_path.suffix.lower()
 
         if suffix == ".czi":
-            logging.info("Detected CZI format, converting...")
+            logger.info("Detected CZI format, converting...")
             reader = CZIReader(str(input_file_path))
             reader.save_as_svs(output_dir=input_dir)
         else:
-            logging.info(f"Detected {suffix or 'unknown'} format, converting...")
+            logger.info(f"Detected {suffix or 'unknown'} format, converting...")
             reader = TiffWSIReader(str(input_file_path))
             try:
                 custom_mpp = float(user_input_mpp)
@@ -52,20 +54,20 @@ def prepare_openslide_wsi(input_file_path, input_dir, user_input_mpp=None):
             reader.save_as_svs(output_dir=input_dir, custom_mpp=custom_mpp)
 
         input_file_path = (Path(input_dir) / input_file_path.name).with_suffix(".svs")
-        logging.info(f"Opening converted slide: {input_file_path}")
+        logger.info(f"Opening converted slide: {input_file_path}")
         slide = openslide.OpenSlide(str(input_file_path))
 
     micron_per_pixel = slide.properties.get("aperio.MPP", "Unknown")
     try:
         final_mpp = float(user_input_mpp)
-        logging.info(f"Using user-provided MPP: {final_mpp}")
+        logger.info(f"Using user-provided MPP: {final_mpp}")
     except (TypeError, ValueError):
         if micron_per_pixel != "Unknown":
             final_mpp = float(micron_per_pixel)
-            logging.info(f"Using image MPP: {final_mpp}")
+            logger.info(f"Using image MPP: {final_mpp}")
         else:
             final_mpp = 0.25
-            logging.info(f"Using default MPP: {final_mpp}")
+            logger.info(f"Using default MPP: {final_mpp}")
 
     slide.close()
     return str(input_file_path), final_mpp

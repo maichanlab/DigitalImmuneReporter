@@ -3,3 +3,4 @@ output/*
 *.pth
 *.bin
 *.json
+__pycache__/*

@@ -1,10 +1,14 @@
 from aicspylibczi import CziFile
 import cv2
+import logging
 import numpy as np
 from PIL import Image
 import warnings
 from pathlib import Path
 import pyvips
+
+logger = logging.getLogger(__name__)
+
 
 class CZIReader:
     """
@@ -51,7 +55,7 @@ class CZIReader:
         self.dimensions = self.width, self.height
         self.dimension_size = {d:s for d,s in zip(self.CziFileObj.dims, self.CziFileObj.size)}
         self.scene_bboxes = self.CziFileObj.get_all_scene_bounding_boxes()
-        print(f"Number of scenes: {len(self.scene_bboxes)}")
+        logger.info(f"Number of scenes: {len(self.scene_bboxes)}")
 
         self.level_count = 1
         self.level_dimensions = (self.dimensions)
@@ -63,7 +67,7 @@ class CZIReader:
             magnification = float(objective_elem.attrib['Magnification'])
         else:
             magnification = None
-            print("Objective magnification not found in metadata")
+            logger.warning("Objective magnification not found in CZI metadata")
 
 
         self.properties = {
@@ -91,7 +95,7 @@ class CZIReader:
         if self.dimension_size['C'] > 1:
             warnings.warn("Image has multiple channels, using channel 0")
         scale_factor = min(size[0] / self.width, size[1] / self.height)
-        print(f"Getting thumbnail with scale factor {scale_factor}")
+        logger.info(f"Getting thumbnail with scale factor {scale_factor}")
         image_np = self.CziFileObj.read_mosaic(scale_factor=scale_factor, C=c).squeeze(0)
         image_np = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
         return image_np
@@ -270,7 +274,7 @@ class CZIReader:
                 resunit="cm",
             )
 
-            print("Saved:", output_path)
+            logger.info(f"Saved: {output_path}")
         else:
             for scene_number, bbox in self.scene_bboxes.items():
                 output_path = Path(output_dir) / f"{Path(self.image_path).stem}_scene{scene_number}.svs"
@@ -308,4 +312,4 @@ class CZIReader:
                     resunit="cm",
                 )
 
-                print("Saved:", output_path)
+                logger.info(f"Saved: {output_path}")

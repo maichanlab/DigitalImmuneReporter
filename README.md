@@ -52,13 +52,47 @@ Prerequisite: The pipeline inference requires a CUDA GPU to run. Visit https://c
    | `--output_dir` | No       | `output/<slide_name>` | Directory where Trident outputs and all files below are written.                        |
    | `--mpp`        | No       | slide's own MPP, else `0.25` | Microns-per-pixel override, used if the slide doesn't carry MPP metadata or it should be overridden. |
    | `--gpu`        | No       | `0`        | GPU index used for the Trident preprocessing step.                                                |
+   | `--use_malignant_region` / `--no-use_malignant_region` | No | `--use_malignant_region` (enabled) | Whether to run Step 2 (malignant-region identification) and restrict tissue-compartment predictions to it. With `--no-use_malignant_region`, Step 2 is skipped entirely (no `malignant_region_mask.npy`, and no CONCH weights needed for it) and Step 3 uses the raw tissue-compartment mask directly. |
 
-   The script runs 5 steps in order and writes into `<output_dir>`:
+   The script runs 5 steps in order and writes into `<output_dir>`, including `pipeline.log` — a complete, timestamped log of the run (everything printed to the console, plus a step-by-step breakdown and a final per-step timing summary, is mirrored here):
    1. `preprocess_with_trident` — tissue/background segmentation + CONCH patch feature extraction
-   2. `predict_malignant_region` — malignant/non-malignant patch classification → `malignant_region_mask.npy`
-   3. `predict_tissue_compartment` — tumor/stroma/necrosis/other segmentation → `tissue_compartment_mask_raw.tif` (before combining with the malignant region, compressed) and `tissue_compartment_mask_combined.npy` (restricted to the malignant region — the final result)
+   2. `predict_malignant_region` — malignant/non-malignant patch classification → `malignant_region_mask.npy` (skipped if `--no-use_malignant_region`)
+   3. `predict_tissue_compartment` — tumor/stroma/necrosis/other segmentation → `tissue_compartment_mask_raw.tif` (before combining with the malignant region, compressed) and `tissue_compartment_mask_combined.npy` (restricted to the malignant region — the final result; identical to the raw mask if Step 2 was skipped)
    4. `predict_cell_type` — cell-level instance segmentation and typing → `cell_type_predictions.json`
    5. `compute_spatial_features` — spatial TIME (tumor immune microenvironment) feature computation + report generation:
       - `features.csv` — every computed feature: cell densities per tissue region, G-cross tumor–immune proximity AUCs, CT (core tumor) / PT (peritumoral) relative abundance and CT/PT ratios, tumor–stroma percentage, cell counts/abundance, neutrophil/lymphocyte ratio
       - `digital_immune_report.pdf` — H&E/tissue/malignant-region thumbnails, cell count & tissue area tables, per-tissue-region density table, CT/PT segmentation plot and relative-abundance table
       - `area_table.csv`, `cell_table.csv` — supporting per-tissue-area and per-cell intermediate tables
+
+4. Batch-process multiple slides from a CSV file, optionally in parallel across GPUs:
+
+   ```bash
+   python code/batch_infer.py --csv_path slides.csv
+   ```
+
+   CSV format (one row per slide):
+
+   | Column                 | Required | Description                                                                 |
+   |------------------------|----------|------------------------------------------------------------------------------|
+   | `slide_path`           | Yes      | Path to the slide/image.                                                    |
+   | `output_dir`           | No       | Defaults to `output/<slide_name>`, same as `infer.py`.                       |
+   | `mpp`                  | No       | Microns-per-pixel override.                                                  |
+   | `use_malignant_region` | No       | `true`/`false` (also accepts `1`/`0`, `yes`/`no`). Defaults to `true`.       |
+
+   Example:
+   ```csv
+   slide_path,output_dir,mpp,use_malignant_region
+   /data/slideA.svs,,,true
+   /data/slideB.svs,output/slideB_run2,0.25,false
+   ```
+
+   Parameters:
+
+   | Argument        | Required | Default                          | Description                                                                 |
+   |-----------------|----------|-----------------------------------|-------------------------------------------------------------------------------|
+   | `--csv_path`    | Yes      | —                                 | CSV file as described above.                                                 |
+   | `--gpu_ids`     | No       | all GPUs detected                 | Comma-separated GPU indices to use, e.g. `0,1,2`.                            |
+   | `--num_workers` | No       | number of `--gpu_ids`             | Number of slides processed concurrently. Set higher than the number of GPUs to share a GPU across workers (only if you have the VRAM for it). |
+   | `--results_csv` | No       | `<csv_path stem>_results.csv`     | Where to write the summary (per-slide status, elapsed time, log path).      |
+
+   Each slide runs as its own `infer.py` subprocess, pinned to a GPU via `CUDA_VISIBLE_DEVICES` (so all 5 steps land on that device) and isolated from the others — one slide crashing or running out of memory doesn't affect the rest of the batch. Per-slide stdout/stderr is captured to `<output_dir>/batch_run.log`, which duplicates (and, if `infer.py` crashes very early, may capture slightly more than) that slide's own `<output_dir>/pipeline.log`.

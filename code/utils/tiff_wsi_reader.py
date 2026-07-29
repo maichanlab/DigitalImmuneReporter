@@ -1,9 +1,13 @@
+import logging
 from pathlib import Path
 import numpy as np
 import tifffile as tiff
 from PIL import Image
 import cv2
 import pyvips
+
+logger = logging.getLogger(__name__)
+
 
 class TiffWSIReader:
 
@@ -53,7 +57,7 @@ class TiffWSIReader:
         interp = cv2.INTER_AREA if shrink else cv2.INTER_LINEAR
 
         new_shape = (int(new_w), int(new_h))
-        print(
+        logger.info(
             f"Resizing to {downsample_info}: new shape {new_shape} "
             f"(original shape: ({w}, {h})) using {'INTER_AREA' if shrink else 'INTER_LINEAR'}"
         )
@@ -161,4 +165,4 @@ class TiffWSIReader:
             resunit="cm",
         )
 
-        print("Saved:", output_path)
+        logger.info(f"Saved: {output_path}")

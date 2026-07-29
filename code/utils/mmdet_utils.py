@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import warnings
 from pathlib import Path
@@ -9,6 +10,8 @@ import numpy as np
 import torch
 
 warnings.filterwarnings("ignore")
+
+logger = logging.getLogger(__name__)
 
 # Mask2Former checkpoints store extra non-tensor objects; torch>=2.6 defaults
 # to `weights_only=True` on load and refuses to unpickle them.
@@ -50,7 +53,7 @@ def model_fn(
     model = init_detector(config_file_path, checkpoint_file_path, device=device)
     max_per_image_setting = model.cfg.model.test_cfg["max_per_image"]
     if max_per_image_setting < 300:
-        print(f"WARNING! Max proposals per image: {max_per_image_setting}")
+        logger.warning(f"Max proposals per image is low: {max_per_image_setting}")
     return model
 
 
@@ -302,7 +305,7 @@ def postprocess_results(
     }
 
     if len(cells_at_margin["bboxes"]):
-        print("Running nms...")
+        logger.info("Running NMS on margin cells to merge duplicate detections across tile borders...")
         _, keeps = batched_nms(
             boxes=torch.Tensor(cells_at_margin["bboxes"]),
             scores=torch.Tensor(cells_at_margin["scores"]),
@@ -318,13 +321,12 @@ def postprocess_results(
                 else:
                     cells_kept[key] = np.concatenate([cells_kept[key], cells_at_margin[key][keeps]], axis=0)
 
-    print(f"After nms: {len(cells_kept['bboxes'])} cells remaining from {len(all_cells['bboxes'])}")
+    logger.info(f"After NMS: {len(cells_kept['bboxes'])} cells remaining from {len(all_cells['bboxes'])}")
     del all_cells
     del cells_at_margin
 
     # Step 3
     from .overlap_cell_cleaner import OverlapCellCleaner
-    from logging import Logger
 
     cell_list = []
 
@@ -350,15 +352,15 @@ def postprocess_results(
     del cells_kept
 
     if len(cell_list) > 0:
-        print("Cleaning overlapping cells...")
+        logger.info("Cleaning overlapping cells detected multiple times across tiles...")
         overlap_cell_cleaner = OverlapCellCleaner(
             cell_list=cell_list,
-            logger=Logger(name=""),
+            logger=logging.getLogger(f"{__name__}.OverlapCellCleaner"),
         )
         cleaned_cells = overlap_cell_cleaner.clean_detected_cells()
         keep_idx = list(cleaned_cells.index.values)
         cleaned_cell_list = [cell_list[idx_c] for idx_c in keep_idx]
-        print(f"After cleaning overlap: {len(cleaned_cell_list)} cells remaining from {len(cell_list)}")
+        logger.info(f"After cleaning overlap: {len(cleaned_cell_list)} cells remaining from {len(cell_list)}")
     else:
         cleaned_cell_list = []
 
@@ -376,7 +378,7 @@ def postprocess_results(
         except ValueError:
             continue
 
-    print(f"Final valid cells: {len(json_output['cells'])} cells.")
+    logger.info(f"Final valid cells: {len(json_output['cells'])} cells.")
 
     return json_output
 
@@ -396,12 +398,13 @@ def infer_single_wsi(wsi_path, model, tile_size=512, output_dir="output", batch_
     temp_output_file_path = os.path.join(output_dir, Path(wsi_path).stem + "_temp.jsonl")
 
     if os.path.exists(output_file_path):
-        print("Output file path exists, ending processing.")
+        logger.info(f"Output file already exists ({output_file_path}), skipping cell segmentation.")
         return output_file_path
     if os.path.exists(temp_output_file_path):
         os.remove(temp_output_file_path)
 
     tile_processor = WSIPatcher(wsi_path, tile_size, overlap=tile_size // 8, contours_geojson_path=contours_geojson_path)
+    logger.info(f"Cell segmentation: {len(tile_processor)} tiles to process (tile_size={tile_size}, batch_size={batch_size}, chunk_size={chunk_size})")
 
     coords = []
     results = []
@@ -416,10 +419,10 @@ def infer_single_wsi(wsi_path, model, tile_size=512, output_dir="output", batch_
         results.extend([r.cpu() for r in batch_results])
 
         if len(coords) >= chunk_size:
-            print(f"Postprocessing chunk {chunk_number}...")
+            logger.info(f"Postprocessing chunk {chunk_number}...")
             json_output = postprocess_results(results[:-tile_processor.number_of_tiles_per_column], coords[:-tile_processor.number_of_tiles_per_column])
 
-            print(f"Saving temp output chunk {chunk_number}...")
+            logger.info(f"Saving temp output chunk {chunk_number}...")
             with open(temp_output_file_path, "a") as f:
                 f.write(json.dumps(json_output) + "\n")
 
@@ -429,14 +432,14 @@ def infer_single_wsi(wsi_path, model, tile_size=512, output_dir="output", batch_
             results = results[-tile_processor.number_of_tiles_per_column:]
 
     if coords:
-        print(f"Postprocessing last chunk {chunk_number}...")
+        logger.info(f"Postprocessing last chunk {chunk_number}...")
         json_output = postprocess_results(results, coords)
 
-        print(f"Saving temp output last chunk {chunk_number}...")
+        logger.info(f"Saving temp output last chunk {chunk_number}...")
         with open(temp_output_file_path, "a") as f:
             f.write(json.dumps(json_output) + "\n")
 
-    print("Saving output...")
+    logger.info("Merging chunk outputs into final cell predictions file...")
     json_output = {
         "cells": []
     }

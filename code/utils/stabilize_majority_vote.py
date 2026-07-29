@@ -1,5 +1,10 @@
+import logging
+
 import numpy as np
 from scipy.signal import convolve2d
+
+logger = logging.getLogger(__name__)
+
 
 def stabilize_majority_vote(coords, labels):
 
@@ -54,7 +59,7 @@ def stabilize_majority_vote(coords, labels):
 
         grid = new_grid
     else:
-        print("Warning: max iterations reached")
+        logger.warning("stabilize_majority_vote: max iterations reached without convergence")
 
     # ---- Convert back to original label list ----
     out_labels = []

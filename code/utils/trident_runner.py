@@ -1,8 +1,11 @@
+import logging
 import os
 
 from trident import load_wsi
 from trident.segmentation_models import segmentation_model_factory
 from trident.patch_encoder_models import encoder_factory
+
+logger = logging.getLogger(__name__)
 
 
 def run_trident_preprocessing(
@@ -49,8 +52,10 @@ def run_trident_preprocessing(
             geojson_path: tissue contour GeoJSON, used to restrict later inference to tissue.
             features_path: H5 file with patch coords + encoder features (for malignant-region prediction).
     """
+    logger.info(f"Loading slide for Trident preprocessing: {slide_path} (mpp={mpp})")
     slide = load_wsi(slide_path=slide_path, lazy_init=False, mpp=mpp)
 
+    logger.info(f"Running tissue/background segmentation (segmenter={segmenter}, conf_thresh={seg_conf_thresh})...")
     segmentation_model = segmentation_model_factory(
         model_name=segmenter,
         confidence_thresh=seg_conf_thresh,
@@ -63,7 +68,9 @@ def run_trident_preprocessing(
         holes_are_tissue=not remove_holes,
     )
     geojson_path = os.path.join(job_dir, "contours_geojson", f"{slide.name}.geojson")
+    logger.info(f"Tissue/background segmentation done. Contours saved: {geojson_path}")
 
+    logger.info(f"Extracting tissue patch coordinates (mag={mag}x, patch_size={patch_size}px)...")
     save_coords = os.path.join(job_dir, f"{mag}x_{patch_size}px_{overlap}px_overlap")
     slide.extract_tissue_coords(
         target_mag=mag,
@@ -71,6 +78,7 @@ def run_trident_preprocessing(
         save_coords=save_coords,
     )
 
+    logger.info(f"Extracting patch features with {patch_encoder} encoder (batch_size={batch_size})...")
     encoder = encoder_factory(patch_encoder, weights_path=patch_encoder_ckpt_path)
     encoder.eval()
     encoder.to(f"cuda:{gpu}")
@@ -83,5 +91,6 @@ def run_trident_preprocessing(
         batch_limit=batch_size,
     )
     features_path = os.path.join(features_dir, f"{slide.name}.h5")
+    logger.info(f"Patch feature extraction done. Features saved: {features_path}")
 
     return geojson_path, features_path
