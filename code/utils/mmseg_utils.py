@@ -4,6 +4,8 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+
+from . import torch_load_patch  # noqa: F401  (must run before mmseg imports below)
 from mmseg.apis.inference import init_model, inference_model
 
 from .wsi_patcher import WSIPatcher

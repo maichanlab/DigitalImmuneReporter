@@ -13,17 +13,7 @@ warnings.filterwarnings("ignore")
 
 logger = logging.getLogger(__name__)
 
-# Mask2Former checkpoints store extra non-tensor objects; torch>=2.6 defaults
-# to `weights_only=True` on load and refuses to unpickle them.
-_real_torch_load = torch.load
-
-
-def _patched_torch_load(*args, **kwargs):
-    kwargs["weights_only"] = False
-    return _real_torch_load(*args, **kwargs)
-
-
-torch.load = _patched_torch_load
+from . import torch_load_patch  # noqa: F401  (must run before mmcv/mmdet imports below)
 
 from torch.utils.data import DataLoader
 
