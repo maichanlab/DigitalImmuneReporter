@@ -522,37 +522,38 @@ class SpatialFeatureComputer:
         elements.append(Table([["Metric", "Value"]] + other_rows))
         elements.append(PageBreak())
 
-        # ----- CT PT IMAGE -----
-        ct_pt_process_plot_path = self.ct_pt_process_plot()
+        if "in_CT" in self.cell_table.columns:
+            # ----- CT PT IMAGE -----
+            ct_pt_process_plot_path = self.ct_pt_process_plot()
 
-        ct_pt_process_plot = Table([
-            [Paragraph("CT/PT Segmentation Process", styles["Heading2"])],
-            [make_scaled_image(ct_pt_process_plot_path, max_width=PAGE_WIDTH, max_height=PAGE_HEIGHT)],
-        ])
-        elements.append(ct_pt_process_plot)
-        elements.append(Spacer(1, 20))
-
-        # ----- RELATIVE ABUNDANCE (CT vs PT) -----
-        elements.append(Paragraph("Relative Abundance by Region (CT vs PT)", styles["Heading3"]))
-
-        cell_types = ["lymphocyte", "eosinophil", "plasmacell", "neutrophil"]
-
-        relative_abundance_rows = [["Cell Type", "CT", "PT"]]
-
-        for cell in cell_types:
-            ct = self.features.get(f"{cell}_CT", "-")
-            pt = self.features.get(f"{cell}_PT", "-")
-
-            relative_abundance_rows.append([
-                cell,
-                round(ct, 4) if isinstance(ct, (int, float)) else ct,
-                round(pt, 4) if isinstance(pt, (int, float)) else pt
+            ct_pt_process_plot = Table([
+                [Paragraph("CT/PT Segmentation Process", styles["Heading2"])],
+                [make_scaled_image(ct_pt_process_plot_path, max_width=PAGE_WIDTH, max_height=PAGE_HEIGHT)],
             ])
+            elements.append(ct_pt_process_plot)
+            elements.append(Spacer(1, 20))
 
-        relative_abundance_table = Table(relative_abundance_rows)
+            # ----- RELATIVE ABUNDANCE (CT vs PT) -----
+            elements.append(Paragraph("Relative Abundance by Region (CT vs PT)", styles["Heading3"]))
 
-        elements.append(relative_abundance_table)
-        elements.append(Spacer(1, 20))
+            cell_types = ["lymphocyte", "eosinophil", "plasmacell", "neutrophil"]
+
+            relative_abundance_rows = [["Cell Type", "CT", "PT"]]
+
+            for cell in cell_types:
+                ct = self.features.get(f"{cell}_CT", "-")
+                pt = self.features.get(f"{cell}_PT", "-")
+
+                relative_abundance_rows.append([
+                    cell,
+                    round(ct, 4) if isinstance(ct, (int, float)) else ct,
+                    round(pt, 4) if isinstance(pt, (int, float)) else pt
+                ])
+
+            relative_abundance_table = Table(relative_abundance_rows)
+
+            elements.append(relative_abundance_table)
+            elements.append(Spacer(1, 20))
 
         pdf = SimpleDocTemplate(output_path)
         pdf.build(elements)
