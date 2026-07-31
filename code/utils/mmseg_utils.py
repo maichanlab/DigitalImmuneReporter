@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+import tifffile
 
 from . import torch_load_patch  # noqa: F401  (must run before mmseg imports below)
 from mmseg.apis.inference import init_model, inference_model
@@ -35,7 +35,8 @@ def model_fn(
 def infer_single_wsi(wsi_path, model, tile_size=1024, output_dir="output", contours_geojson_path=None):
     """
     Performs semantic segmentation inference on a whole slide image (WSI) using a tile-by-tile
-    approach, reconstructs the full-resolution prediction mask, and saves the result as a PNG.
+    approach, reconstructs the full-resolution prediction mask, and saves the result as a
+    compressed TIFF.
 
     Returns:
         np.ndarray: Single-channel mask where pixel values are predicted tissue-compartment
@@ -43,7 +44,7 @@ def infer_single_wsi(wsi_path, model, tile_size=1024, output_dir="output", conto
     """
 
     os.makedirs(output_dir, exist_ok=True)
-    output_file_path = os.path.join(output_dir, Path(wsi_path).stem + ".png")
+    output_file_path = os.path.join(output_dir, Path(wsi_path).stem + ".tif")
     if os.path.exists(output_file_path):
         logger.info(f"Output file already exists ({output_file_path}), skipping tissue segmentation.")
         return None
@@ -63,6 +64,6 @@ def infer_single_wsi(wsi_path, model, tile_size=1024, output_dir="output", conto
 
         mask[y1:y2, x1:x2] = tile_mask[:tile_mask.shape[0] - pad_bottom, :tile_mask.shape[1] - pad_right]
 
-    Image.fromarray(mask).save(output_file_path)
+    tifffile.imwrite(output_file_path, mask, compression="zlib")
 
     return mask

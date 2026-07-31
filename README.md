@@ -52,12 +52,12 @@ Prerequisite: The pipeline inference requires a CUDA GPU to run. Visit https://c
    | `--output_dir` | No       | `output/<slide_name>` | Directory where Trident outputs and all files below are written.                        |
    | `--mpp`        | No       | slide's own MPP, else `0.25` | Microns-per-pixel override, used if the slide doesn't carry MPP metadata or it should be overridden. |
    | `--gpu`        | No       | `0`        | GPU index used for the Trident preprocessing step.                                                |
-   | `--use_malignant_region` / `--no-use_malignant_region` | No | `--use_malignant_region` (enabled) | Whether to run Step 2 (malignant-region identification) and restrict tissue-compartment predictions to it. With `--no-use_malignant_region`, Step 2 is skipped entirely (no `malignant_region_mask.npy`, and no CONCH weights needed for it) and Step 3 uses the raw tissue-compartment mask directly. |
+   | `--use_malignant_region` / `--no-use_malignant_region` | No | `--use_malignant_region` (enabled) | Whether to run Step 2 (malignant-region identification) and restrict tissue-compartment predictions to it. With `--no-use_malignant_region`, Step 2 is skipped entirely (no `malignant_region_mask.tif`, and no CONCH weights needed for it) and Step 3 uses the raw tissue-compartment mask directly. |
 
    The script runs 5 steps in order and writes into `<output_dir>`, including `pipeline.log` — a complete, timestamped log of the run (everything printed to the console, plus a step-by-step breakdown and a final per-step timing summary, is mirrored here):
    1. `preprocess_with_trident` — tissue/background segmentation + CONCH patch feature extraction
-   2. `predict_malignant_region` — malignant/non-malignant patch classification → `malignant_region_mask.npy` (skipped if `--no-use_malignant_region`)
-   3. `predict_tissue_compartment` — tumor/stroma/necrosis/other segmentation → `tissue_compartment_mask_raw.tif` (before combining with the malignant region, compressed) and `tissue_compartment_mask_combined.npy` (restricted to the malignant region — the final result; identical to the raw mask if Step 2 was skipped)
+   2. `predict_malignant_region` — malignant/non-malignant patch classification → `malignant_region_mask.tif` (compressed, skipped if `--no-use_malignant_region`)
+   3. `predict_tissue_compartment` — tumor/stroma/necrosis/other segmentation → `tissue_compartment_mask_raw.tif` (before combining with the malignant region, compressed) and `tissue_compartment_mask_combined.tif` (restricted to the malignant region — the final result; identical to the raw mask if Step 2 was skipped; compressed)
    4. `predict_cell_type` — cell-level instance segmentation and typing → `cell_type_predictions.json`
    5. `compute_spatial_features` — spatial TIME (tumor immune microenvironment) feature computation + report generation:
       - `features.csv` — every computed feature: cell densities per tissue region, G-cross tumor–immune proximity AUCs, CT (core tumor) / PT (peritumoral) relative abundance and CT/PT ratios, tumor–stroma percentage, cell counts/abundance, neutrophil/lymphocyte ratio

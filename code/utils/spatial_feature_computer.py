@@ -99,7 +99,11 @@ class SpatialFeatureComputer:
 
         self.malignant_mask = None
         if malignant_mask_path and Path(malignant_mask_path).exists():
-            self.malignant_mask = np.load(malignant_mask_path).astype(np.uint8)
+            malignant_mask_path = Path(malignant_mask_path)
+            if malignant_mask_path.suffix.lower() in {".tif", ".tiff"}:
+                self.malignant_mask = tifffile.imread(malignant_mask_path).astype(np.uint8)
+            else:
+                self.malignant_mask = np.load(malignant_mask_path).astype(np.uint8)
             logger.info(f"Loaded malignant-region mask from {malignant_mask_path} (used for report visualization only)")
 
         # Retrieve cell data

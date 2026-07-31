@@ -21,10 +21,10 @@ All model weights are loaded from ../model_weights (never downloaded).
 
 Outputs are written to <output_dir>/, one file per prediction:
     pipeline.log                          - full log of this run (console output is mirrored here)
-    malignant_region_mask.npy            - Step 2 (malignant/non-malignant mask), only if not skipped
+    malignant_region_mask.tif            - Step 2 (malignant/non-malignant mask), only if not skipped (compressed)
     tissue_compartment_mask_raw.tif      - Step 3, before combining with the malignant region (compressed)
-    tissue_compartment_mask_combined.npy - Step 3, restricted to the malignant region (identical to the
-                                            raw mask if Step 2 was skipped)
+    tissue_compartment_mask_combined.tif - Step 3, restricted to the malignant region (identical to the
+                                            raw mask if Step 2 was skipped) (compressed)
     cell_type_predictions.json           - Step 4
     features.csv                         - Step 5, all computed spatial TIME feature values
     digital_immune_report.pdf            - Step 5, summary report
@@ -167,12 +167,13 @@ def predict_tissue_compartment(slide_path, geojson_path, malignant_mask, mpp, de
         contours_geojson_path=geojson_path,
     )
 
-    # infer_tissue_wsi() also writes an uncompressed raw-mask PNG as a side
-    # effect; we save our own compressed TIFF copy of the same raw mask
-    # instead (see main()), so drop the now-redundant PNG.
-    auto_png_path = os.path.join(output_dir, f"{Path(slide_path).stem}.png")
-    if os.path.exists(auto_png_path):
-        os.remove(auto_png_path)
+    # infer_tissue_wsi() also writes a compressed-TIFF raw mask as a side
+    # effect, under the slide's own stem; we save our own copy of the same
+    # raw mask under a fixed name instead (see main()), so drop the
+    # now-redundant auto-named one.
+    auto_tif_path = os.path.join(output_dir, f"{Path(slide_path).stem}.tif")
+    if os.path.exists(auto_tif_path):
+        os.remove(auto_tif_path)
 
     if malignant_mask is None:
         logger.info("No malignant-region mask provided; using the raw tissue-compartment prediction as-is.")
@@ -313,8 +314,8 @@ def main():
     malignant_mask_path = None
     if args.use_malignant_region:
         malignant_mask = predict_malignant_region(conch_features_path, width, height)
-        malignant_mask_path = os.path.join(output_dir, "malignant_region_mask.npy")
-        np.save(malignant_mask_path, malignant_mask)
+        malignant_mask_path = os.path.join(output_dir, "malignant_region_mask.tif")
+        tifffile.imwrite(malignant_mask_path, malignant_mask, compression="zlib")
         logger.info(f"Malignant region mask saved: {malignant_mask_path}")
     else:
         logger.info("Step 2: Skipping malignant region prediction (--no-use_malignant_region); using the tissue compartment mask directly.")
@@ -326,8 +327,8 @@ def main():
     tissue_mask_raw_path = os.path.join(output_dir, "tissue_compartment_mask_raw.tif")
     tifffile.imwrite(tissue_mask_raw_path, tissue_mask, compression="zlib")
     logger.info(f"Original (pre-combination) tissue compartment mask saved: {tissue_mask_raw_path}")
-    tissue_mask_combined_path = os.path.join(output_dir, "tissue_compartment_mask_combined.npy")
-    np.save(tissue_mask_combined_path, combined_tissue_mask)
+    tissue_mask_combined_path = os.path.join(output_dir, "tissue_compartment_mask_combined.tif")
+    tifffile.imwrite(tissue_mask_combined_path, combined_tissue_mask, compression="zlib")
     logger.info(f"Combined tissue compartment mask saved: {tissue_mask_combined_path}")
     timing_tracker.end_step("3. Tissue compartment segmentation")
 
