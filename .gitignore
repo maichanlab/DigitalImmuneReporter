@@ -5,5 +5,5 @@ output/*
 *.bin
 *.json
 *.safetensors
-__pycache__/
 *.csv
+__pycache__/
