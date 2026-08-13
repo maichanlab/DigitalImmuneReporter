@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
@@ -45,8 +45,9 @@ def generate_cell_table(
     cells: List[Dict[str, Any]],
     tissue_mask: np.ndarray,
     tissue_id2label: Dict[int, str],
-    cell_id2label: Dict[int, str],
     mpp: float,
+    cell_id2label: Optional[Dict[int, str]] = None,
+    hierarchy_levels: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """
     Generate a table associating each cell with the tissue type that contains it.
@@ -55,16 +56,25 @@ def generate_cell_table(
         cells: List of dictionaries containing cell information. Each dictionary must contain:
             - 'centroid': (x, y)
             - 'contour': (N, 2) array
-            - 'label' or 'type'
             - optional 'score' or 'type_prob'
+            - either an int 'label'/'type' (with `cell_id2label` given), or one string field
+              per entry in `hierarchy_levels` (with `hierarchy_levels` given)
         tissue_mask: 2D array (H, W) with tissue type IDs.
         tissue_id2label: Mapping from tissue ID to label.
-        cell_id2label: Mapping from cell type ID to label.
         mpp: Microns per pixel.
+        cell_id2label: Mapping from cell type ID to label, for cells carrying a single int
+            'label'/'type' (the morphology_based cell-typing path). Exactly one of `cell_id2label` /
+            `hierarchy_levels` must be given.
+        hierarchy_levels: Ordered list of per-cell string fields (e.g. `["level_1", "level_2"]`,
+            already resolved to human-readable names) for cells carrying a marker-hierarchy
+            taxonomy (the miphei_multiplex cell-typing path). Each is added as its own column,
+            in addition to `cell_label` (set to the first/top level, for backward compatibility).
 
     Returns:
         pd.DataFrame with cell and tissue annotations.
     """
+    if (cell_id2label is None) == (hierarchy_levels is None):
+        raise ValueError("Exactly one of cell_id2label or hierarchy_levels must be given.")
 
     height, width = tissue_mask.shape
     records = []
@@ -73,8 +83,15 @@ def generate_cell_table(
         centroid = cell["centroid"]
         contour = cell["contour"]
 
-        cell_label = cell.get("label", cell.get("type"))
         cell_score = cell.get("score", cell.get("type_prob"))
+
+        if hierarchy_levels is not None:
+            level_values = {level: cell[level] for level in hierarchy_levels}
+            cell_label_str = level_values[hierarchy_levels[0]]
+        else:
+            cell_label = cell.get("label", cell.get("type"))
+            cell_label_str = cell_id2label.get(cell_label, f"Unknown({cell_label})")
+            level_values = {}
 
         contour = np.round(np.array(contour)).astype(int)
         x_coords = contour[..., 0]
@@ -115,8 +132,6 @@ def generate_cell_table(
             tissue_id = int(np.bincount(overlapping_tissues).argmax())
             tissue_label = tissue_id2label.get(tissue_id, f"Unknown({tissue_id})")
 
-        cell_label_str = cell_id2label.get(cell_label, f"Unknown({cell_label})")
-
         x_pixel = centroid[0]
         y_pixel = centroid[1]
 
@@ -125,6 +140,7 @@ def generate_cell_table(
                 "x": x_pixel * mpp,
                 "y": y_pixel * mpp,
                 "cell_label": cell_label_str,
+                **level_values,
                 "tissue_label": tissue_label,
                 "x_pixel": x_pixel,
                 "y_pixel": y_pixel,

@@ -33,8 +33,8 @@ TISSUE_ID2LABEL = {1: "Tumor", 2: "Stroma", 3: "Necrosis", 4: "Other"}
 # Same color convention as SpatialFeatureComputer.tissue_mask_thumbnail()
 TISSUE_COLORS = {1: (0, 0, 255), 2: (0, 255, 0), 3: (255, 0, 0), 4: (255, 255, 0)}
 
-SLIDE_PATH = "/data_g1/AI_projects/raw_data/PCITB_CRC/HE_raw_images/Tumor/TMA1/TMA 1 Level 16_Core[1,1,10]_[4381,47584].tif"
-MPP_VALUES = [0.25, 0.5, 1.0]
+SLIDE_PATH = "/data_g1/AI_projects/raw_data/PCITB_CRC/HE_raw_images/Tumor/TMA1/TMA 1 Level 1_Core[1,1,16]_[3145,49644].tif"
+MPP_VALUES = [0.25, 0.4, 0.5, 0.6, 0.8]
 OUTPUT_DIR = str(REPO_ROOT / "output" / f"mpp_sweep_{Path(SLIDE_PATH).stem}")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)

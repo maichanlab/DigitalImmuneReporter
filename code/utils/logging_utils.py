@@ -38,6 +38,12 @@ class _Tee:
     def isatty(self):
         return False
 
+    def fileno(self):
+        # Some libraries (ray/faulthandler, colorama's stream-wrapping proxy) introspect the
+        # underlying file descriptor of stdout/stderr. Delegate to the first (real console)
+        # stream, since that's the only one of self._streams backed by an actual OS fd.
+        return self._streams[0].fileno()
+
 
 def setup_logging(output_dir, log_filename="pipeline.log", level=logging.INFO):
     """
@@ -61,6 +67,11 @@ def setup_logging(output_dir, log_filename="pipeline.log", level=logging.INFO):
     handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
     root_logger.addHandler(handler)
     root_logger.setLevel(level)
+
+    # pyvips propagates libvips' own informational chatter ("VIPS: residual scale ...",
+    # "VIPS: vips__open_image_write: simple open") through Python logging at INFO level; it's
+    # extremely high-volume (one line per tile write) and not actionable, so keep it at WARNING+.
+    logging.getLogger("pyvips").setLevel(logging.WARNING)
 
     return log_path
 

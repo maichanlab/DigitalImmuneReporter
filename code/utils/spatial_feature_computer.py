@@ -12,7 +12,7 @@ the "under investigation" lymphocyte-cluster analysis left out.
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import cv2
 import numpy as np
@@ -43,18 +43,44 @@ class SpatialFeatureComputer:
     def __init__(
         self,
         slide_path: str,
-        cell_json_path: str,
         tissue_mask_path: str,
         output_directory: str,
+        cell_json_path: Optional[str] = None,
+        cell_hierarchy_json_path: Optional[str] = None,
         mpp: Optional[float] = None,
         malignant_mask_path: Optional[str] = None,  # for visualization only, no processing involved
         tissue_contour_geojson_path: Optional[str] = None,
         tissue_id2label: Dict[int, str] = DEFAULT_TISSUE_ID2LABEL,
         cell_id2label: Dict[int, str] = DEFAULT_CELL_ID2LABEL,
+        tumor_cell_label: str = "tumor",
+        level_categories: Optional[Dict[str, List[str]]] = None,
+        immune_level_categories: Optional[Dict[str, List[str]]] = None,
     ):
+        """
+        Exactly one of `cell_json_path` (existing flat morphology_based cell-typing output: cells carry a
+        single int "label"/"type", mapped via `cell_id2label`) or `cell_hierarchy_json_path`
+        (miphei_multiplex cell-typing output: cells carry one string field per hierarchy level,
+        e.g. "level_1"/"level_2") must be given.
+
+        `tumor_cell_label`, `level_categories`, `immune_level_categories` only need to be passed
+        for the `cell_hierarchy_json_path` path (defaults below reproduce today's exact
+        morphology_based behavior unchanged):
+          - `level_categories`: ordered `{level_column: [category, ...]}` used to backfill
+            per-tissue cell density/count for every real category, at every hierarchy level.
+          - `immune_level_categories`: same shape, used as the tumor-proximity partner
+            categories for G-cross and CT/PT (defaults to `level_categories` itself). Kept
+            separate because the legacy taxonomy excludes "tumor" and "other" from this list,
+            while a marker hierarchy has no such catch-all category to exclude.
+        """
+        if (cell_json_path is None) == (cell_hierarchy_json_path is None):
+            raise ValueError("Exactly one of cell_json_path or cell_hierarchy_json_path must be given.")
+        if cell_hierarchy_json_path is not None and level_categories is None:
+            raise ValueError("level_categories must be given when using cell_hierarchy_json_path.")
+
         if not Path(slide_path).exists():
             raise FileExistsError("H&E image not found")
-        if not Path(cell_json_path).exists():
+        active_cell_json_path = cell_json_path if cell_json_path is not None else cell_hierarchy_json_path
+        if not Path(active_cell_json_path).exists():
             raise FileExistsError("Cell prediction not found")
         if not Path(tissue_mask_path).exists():
             raise FileExistsError("Tissue prediction not found")
@@ -74,6 +100,18 @@ class SpatialFeatureComputer:
 
         self.tissue_id2label = tissue_id2label
         self.cell_id2label = cell_id2label
+        self.tumor_cell_label = tumor_cell_label
+
+        if cell_hierarchy_json_path is not None:
+            self.hierarchy_levels = list(level_categories.keys())
+            self.level_categories = level_categories
+            self.immune_level_categories = immune_level_categories if immune_level_categories is not None else level_categories
+        else:
+            self.hierarchy_levels = None  # generate_cell_table() uses cell_id2label instead
+            self.level_categories = level_categories if level_categories is not None else {"cell_label": list(cell_id2label.values())}
+            self.immune_level_categories = immune_level_categories if immune_level_categories is not None else {
+                "cell_label": ["neutrophil", "lymphocyte", "eosinophil", "plasmacell"]
+            }
 
         # Retrieve tissue data
         logger.info(f"Loading tissue data from {tissue_mask_path}")
@@ -107,8 +145,8 @@ class SpatialFeatureComputer:
             logger.info(f"Loaded malignant-region mask from {malignant_mask_path} (used for report visualization only)")
 
         # Retrieve cell data
-        logger.info(f"Loading cell data from {cell_json_path}")
-        with open(cell_json_path) as json_file:
+        logger.info(f"Loading cell data from {active_cell_json_path}")
+        with open(active_cell_json_path) as json_file:
             data = json.load(json_file)
             self.cell_data = data["cells"]
         logger.info(f"Loaded {len(self.cell_data)} cells")
@@ -121,7 +159,7 @@ class SpatialFeatureComputer:
         ].copy()
 
         cell_table["is_tumor_cell"] = (
-            (cell_table["cell_label"] == "tumor")
+            (cell_table["cell_label"] == self.tumor_cell_label)
             & (cell_table["tissue_label"].isin(["tumor", "stroma"]))
         )
 
@@ -144,37 +182,39 @@ class SpatialFeatureComputer:
             tissue_area.setdefault(t, 0)
 
         # ----- CELL COUNT -----
-        cell_count = count_cell_in_tissue(cell_table)
+        # Computed once per hierarchy level (just "cell_label" itself for the legacy
+        # morphology_based taxonomy), restricted each time to that level's own real category names, so a
+        # multi-level marker hierarchy gets one row per (level, category, tissue) instead of
+        # conflating e.g. level_1's "T Cell" with level_2's "CytotoxicT"/"Helper T".
+        cell_count = pd.DataFrame()
+        for level, cell_types in self.level_categories.items():
+            level_cell_table = cell_table.copy()
+            level_cell_table["cell_label"] = level_cell_table[level]
+            level_cell_table = level_cell_table[level_cell_table["cell_label"].isin(cell_types)]
+            cell_count = pd.concat([cell_count, count_cell_in_tissue(level_cell_table)], ignore_index=True)
 
-        for cell_type in [
-            "tumor",
-            "other",
-            "lymphocyte",
-            "eosinophil",
-            "plasmacell",
-            "neutrophil",
-        ]:
-            for tissue_type in ["tumor", "stroma", "necrosis", "other"]:
+            for cell_type in cell_types:
+                for tissue_type in ["tumor", "stroma", "necrosis", "other"]:
 
-                if len(
-                    cell_count[
-                        (cell_count["cell_label"] == cell_type)
-                        & (cell_count["tissue_label"] == tissue_type)
-                    ]
-                ) == 0:
-
-                    cell_count = pd.concat(
-                        [
-                            pd.DataFrame(
-                                {
-                                    "cell_label": [cell_type],
-                                    "tissue_label": [tissue_type],
-                                    "count": [0],
-                                }
-                            ),
-                            cell_count,
+                    if len(
+                        cell_count[
+                            (cell_count["cell_label"] == cell_type)
+                            & (cell_count["tissue_label"] == tissue_type)
                         ]
-                    )
+                    ) == 0:
+
+                        cell_count = pd.concat(
+                            [
+                                pd.DataFrame(
+                                    {
+                                        "cell_label": [cell_type],
+                                        "tissue_label": [tissue_type],
+                                        "count": [0],
+                                    }
+                                ),
+                                cell_count,
+                            ]
+                        )
 
         # ----- TUMOR + STROMA -----
         tissue_area["tumor_stroma"] = (
@@ -200,20 +240,23 @@ class SpatialFeatureComputer:
         # ----- G-CROSS -----
         radii = np.linspace(0, 50, 100)
 
-        class_i = "tumor"
+        class_i = self.tumor_cell_label
         points_i = cell_table[cell_table["is_tumor_cell"]][["x", "y"]].to_numpy()
 
-        for class_j in ["neutrophil", "lymphocyte", "eosinophil", "plasmacell"]:
+        for level, cell_types in self.immune_level_categories.items():
+            for class_j in cell_types:
+                if class_j == class_i:
+                    continue
 
-            points_j = cell_table[cell_table["cell_label"] == class_j][["x", "y"]].to_numpy()
+                points_j = cell_table[cell_table[level] == class_j][["x", "y"]].to_numpy()
 
-            if len(points_i) == 0 or len(points_j) == 0:
-                output[f"G_{class_i}:{class_j}_auc_0_20"] = 0
-                continue
+                if len(points_i) == 0 or len(points_j) == 0:
+                    output[f"G_{class_i}:{class_j}_auc_0_20"] = 0
+                    continue
 
-            output[f"G_{class_i}:{class_j}_auc_0_20"] = area_under_g_cross_curve(
-                points_i, points_j, radii, slice=(0, 20)
-            )
+                output[f"G_{class_i}:{class_j}_auc_0_20"] = area_under_g_cross_curve(
+                    points_i, points_j, radii, slice=(0, 20)
+                )
 
         # ----- CT / PT -----
         if len(cell_table) >= 20000:
@@ -225,53 +268,29 @@ class SpatialFeatureComputer:
 
             if total_CT and total_PT:
 
-                for cell_type in [
-                    "lymphocyte",
-                    "eosinophil",
-                    "plasmacell",
-                    "neutrophil",
-                ]:
+                for level, cell_types in self.immune_level_categories.items():
+                    for cell_type in cell_types:
+                        if cell_type == class_i:
+                            continue
 
-                    output[f"{cell_type}_CT"] = (
-                        len(
+                        ct_count = len(
                             cell_table[
                                 (cell_table["in_CT"])
-                                & (cell_table["cell_label"] == cell_type)
+                                & (cell_table[level] == cell_type)
                             ]
                         )
-                        / total_CT
-                    )
-
-                    output[f"{cell_type}_PT"] = (
-                        len(
+                        pt_count = len(
                             cell_table[
                                 (cell_table["in_PT"])
-                                & (cell_table["cell_label"] == cell_type)
+                                & (cell_table[level] == cell_type)
                             ]
                         )
-                        / total_PT
-                    )
 
-                    if len(
-                            cell_table[
-                                (cell_table["in_PT"])
-                                & (cell_table["cell_label"] == cell_type)
-                            ]
-                        ):
-                        output[f"{cell_type}_CT/PT_ratio"] = (
-                            len(
-                                cell_table[
-                                    (cell_table["in_CT"])
-                                    & (cell_table["cell_label"] == cell_type)
-                                ]
-                            ) /
-                            len(
-                                cell_table[
-                                    (cell_table["in_PT"])
-                                    & (cell_table["cell_label"] == cell_type)
-                                ]
-                            )
-                        )
+                        output[f"{cell_type}_CT"] = ct_count / total_CT
+                        output[f"{cell_type}_PT"] = pt_count / total_PT
+
+                        if pt_count:
+                            output[f"{cell_type}_CT/PT_ratio"] = ct_count / pt_count
 
         # ----- TSP -----
         try:
@@ -284,8 +303,12 @@ class SpatialFeatureComputer:
             output["tumor_stroma_percentage"] = 0
 
         # ----- CELL COUNT -----
+        # Exclude the derived "tumor_stroma" row added above (a tumor+stroma summary used only
+        # for the *_density_in_tumor_stroma_region feature) - summing it in here would double
+        # count every cell that's in tumor or stroma tissue.
         cell_count_overall = (
-            cell_count.groupby("cell_label").agg({"count": "sum"}).reset_index()
+            cell_count[cell_count["tissue_label"] != "tumor_stroma"]
+            .groupby("cell_label").agg({"count": "sum"}).reset_index()
         )
 
         cell_count_overall["abundance"] = (
@@ -297,13 +320,19 @@ class SpatialFeatureComputer:
             output[f"{row['cell_label']}_abundance"] = row["abundance"]
 
         # ----- NLR -----
-        neutrophil = output.get("neutrophil_count", 0)
-        lymphocyte = output.get("lymphocyte_count", 0)
+        # Only meaningful for taxonomies that actually distinguish neutrophils from
+        # lymphocytes (the legacy morphology_based taxonomy); a marker hierarchy without those
+        # categories has no NLR equivalent, so the feature is simply omitted rather than
+        # reported as a misleading 0.
+        all_categories = {c for cats in self.level_categories.values() for c in cats}
+        if {"neutrophil", "lymphocyte"} <= all_categories:
+            neutrophil = output.get("neutrophil_count", 0)
+            lymphocyte = output.get("lymphocyte_count", 0)
 
-        if lymphocyte == 0:
-            output["neutrophil_to_lymphocyte_ratio"] = neutrophil
-        else:
-            output["neutrophil_to_lymphocyte_ratio"] = neutrophil / lymphocyte
+            if lymphocyte == 0:
+                output["neutrophil_to_lymphocyte_ratio"] = neutrophil
+            else:
+                output["neutrophil_to_lymphocyte_ratio"] = neutrophil / lymphocyte
 
         self.features = output
         return output
@@ -453,7 +482,11 @@ class SpatialFeatureComputer:
             ])
 
         count_rows = [["Cell Type", "Count", "Abundance"]]
-        for cell in ["tumor", "lymphocyte", "neutrophil", "plasmacell", "eosinophil"]:
+        top_level = self.hierarchy_levels[0] if self.hierarchy_levels else "cell_label"
+        top_level_cell_types = [self.tumor_cell_label] + [
+            c for c in self.immune_level_categories.get(top_level, []) if c != self.tumor_cell_label
+        ]
+        for cell in top_level_cell_types:
             count_rows.append(
                 [
                     cell,
@@ -509,7 +542,7 @@ class SpatialFeatureComputer:
         g_rows = [["Proximity", "AUC"]]
 
         for k, v in self.features.items():
-            if "G_tumor" in k:
+            if k.startswith(f"G_{self.tumor_cell_label}:"):
                 g_rows.append([k, round(v, 4)])
 
         elements.append(Table(g_rows))
@@ -520,8 +553,11 @@ class SpatialFeatureComputer:
 
         other_rows = [
             ["Tumor Stroma Percentage", round(self.features.get("tumor_stroma_percentage", 0), 3)],
-            ["Neutrophil/Lymphocyte Ratio", round(self.features.get("neutrophil_to_lymphocyte_ratio", 0), 3)],
         ]
+        if "neutrophil_to_lymphocyte_ratio" in self.features:
+            other_rows.append(
+                ["Neutrophil/Lymphocyte Ratio", round(self.features["neutrophil_to_lymphocyte_ratio"], 3)]
+            )
 
         elements.append(Table([["Metric", "Value"]] + other_rows))
         elements.append(PageBreak())
@@ -577,7 +613,8 @@ class SpatialFeatureComputer:
         cell_table_csv_path = self.output_directory / "cell_table.csv"
         self.cell_table = generate_cell_table(
             cells=self.cell_data,
-            cell_id2label=self.cell_id2label,
+            cell_id2label=self.cell_id2label if self.hierarchy_levels is None else None,
+            hierarchy_levels=self.hierarchy_levels,
             tissue_mask=self.tissue_mask,
             tissue_id2label=self.tissue_id2label,
             mpp=self.mpp,

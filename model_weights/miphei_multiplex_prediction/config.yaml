@@ -1,0 +1,66 @@
+data:
+  slide_dataframe_path: /home/U1020040/data/slide_dataframe.csv
+  train_dataframe_path: /home/U1020040/data/train_dataframe.csv
+  val_dataframe_path: /home/U1020040/data/val_dataframe.csv
+  test_dataframe_path: /home/U1020040/data/test_dataframe.csv
+  augmentation_dir: /root/workdir/tile_orion_norm_slides
+  channel_stats_path: channel_stats.json
+  targ_channel_names:
+  - Hoechst
+  - CD31
+  - CD45
+  - CD68
+  - CD4
+  - FOXP3
+  - CD8a
+  - CD45RO
+  - CD20
+  - PD-L1
+  - CD3e
+  - CD163
+  - E-cadherin
+  - Ki67
+  - Pan-CK
+  - SMA
+  normalization:
+    mean: [123.675, 116.28 , 103.53]
+    std: [58.395, 57.12 , 57.375]
+train:
+  epochs: 15
+  batch_size: 16
+  gan_train: false
+  gan_mode: structural
+  learning_rate_d: 0.0002
+  learning_rate_g: 0.0002
+  precision: 16-mixed
+  foreground_head: false
+  use_cell_metrics: true
+  wandb_project: he-if-image-to-image
+  wandb_note: model_vitmatte
+  losses:
+    lambda_factor: 50
+    use_weighted_mae: false
+    adversarial_loss: binary_crossentropy
+    perceptual_loss: false
+    cell_loss:
+      use_loss: false
+      use_mse: false
+      use_clustering: false
+      mlp_path: mlp.ckpt
+  callbacks:
+    modelcheckpoint:
+      mode: max
+      monitor: val_cell_auc
+  data_sampler:
+    use_sampler: false
+    mode: cell
+    tresh: 4
+    other_percent: 0.2
+model:
+  model_name: mipheivit
+  dropout: 0.1
+  foreground_head: false
+  checkpoint_path: null
+  encoder:
+    encoder_name: hoptimus0
+    encoder_weights: null

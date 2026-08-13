@@ -1,6 +1,9 @@
 .venv/*
+code/external/*
 output/*
 *.pth
 *.bin
 *.json
-__pycache__/*
+*.safetensors
+__pycache__/
+*.csv
