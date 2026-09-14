@@ -25,13 +25,13 @@ class TumorRegionIdentifier:
         cell_table: pd.DataFrame,
         tumor_cell_binary_col: str,
 
-        grid_resolution: float = 32.5,
-        peritumoral_margin_um: int = 100,
+        grid_resolution: float = 150,
+        peritumoral_margin_um: int = 300,
         k_neighbors: int = 25,
         tissue_gap_closing_um: float = None,
         tissue_density_radius_um: float = 50.0,
         tissue_min_neighbors: int = 3,
-        min_margin_tissue_fraction: float = 1.0,
+        min_margin_tissue_fraction: float = 3.0,
         verbose: bool = True,
     ):
         """
@@ -45,9 +45,9 @@ class TumorRegionIdentifier:
             - tumor_cell_binary_col
         tumor_cell_binary_col : str
             Column name in cell_table indicating whether a cell is initially labeled as tumor (binary).
-        grid_resolution : float, default 32.5
+        grid_resolution : float, default 150
             Size of each grid cell in micrometers for spatial mapping.
-        peritumoral_margin_um : int, default 100
+        peritumoral_margin_um : int, default 300
             Width of the peritumoral (PT) region in micrometers.
         k_neighbors : int, default 25
             Number of neighbors used in k-NN tumor mask estimation.
@@ -65,7 +65,7 @@ class TumorRegionIdentifier:
         tissue_min_neighbors : int, default 3
             Minimum number of other cells a cell must have within `tissue_density_radius_um`
             to count toward the tissue mask. Cells below this are treated as noise, not tissue.
-        min_margin_tissue_fraction : float, default 1.0
+        min_margin_tissue_fraction : float, default 3.0
             Where the tissue-constrained margin buffer runs up against background before
             reaching the full margin distance, PT membership additionally requires the locally
             available tissue depth (tumor edge to background) to be at least
