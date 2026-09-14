@@ -116,16 +116,17 @@ Prerequisite: The pipeline inference requires a CUDA GPU to run. Visit https://c
    | Column                 | Required | Description                                                                 |
    |------------------------|----------|------------------------------------------------------------------------------|
    | `slide_path`           | Yes      | Path to the slide/image.                                                    |
-   | `output_dir`           | No       | Defaults to `output/<slide_name>`, same as `infer.py`.                       |
    | `mpp`                  | No       | Microns-per-pixel override.                                                  |
    | `use_malignant_region` | No       | `true`/`false` (also accepts `1`/`0`, `yes`/`no`). Defaults to `true`.       |
    | `cell_type_method`     | No       | `morphology_based`/`miphei_multiplex`/`both`. Defaults to `morphology_based`. |
 
+   There's no per-slide output directory column — every slide's output goes to `<output_folder>/<slide_name>` (see `--output_folder` below), so a batch's outputs always live under one root.
+
    Example:
    ```csv
-   slide_path,output_dir,mpp,use_malignant_region,cell_type_method
-   /data/slideA.svs,,,true,morphology_based
-   /data/slideB.svs,output/slideB_run2,0.25,false,miphei_multiplex
+   slide_path,mpp,use_malignant_region,cell_type_method
+   /data/slideA.svs,,true,morphology_based
+   /data/slideB.svs,0.25,false,miphei_multiplex
    ```
 
    Parameters:
@@ -133,6 +134,7 @@ Prerequisite: The pipeline inference requires a CUDA GPU to run. Visit https://c
    | Argument        | Required | Default                          | Description                                                                 |
    |-----------------|----------|-----------------------------------|-------------------------------------------------------------------------------|
    | `--csv_path`    | Yes      | —                                 | CSV file as described above.                                                 |
+   | `--output_folder` | No    | `output`                          | Root directory for every slide's output; each slide is written to `<output_folder>/<slide_name>`. |
    | `--gpu_ids`     | No       | all GPUs detected                 | Comma-separated GPU indices to use, e.g. `0,1,2`.                            |
    | `--num_workers` | No       | number of `--gpu_ids`             | Number of slides processed concurrently. Set higher than the number of GPUs to share a GPU across workers (only if you have the VRAM for it). |
    | `--results_csv` | No       | `<csv_path stem>_results.csv`     | Where to write the summary (per-slide status, elapsed time, log path).      |
@@ -140,9 +142,9 @@ Prerequisite: The pipeline inference requires a CUDA GPU to run. Visit https://c
    | `--use_malignant_region` / `--no-use_malignant_region` | No | — | Batch-wide `use_malignant_region` override, applied to every slide in the batch. |
    | `--cell_type_method` | No  | —                                 | Batch-wide `cell_type_method` override, applied to every slide in the batch. |
 
-   The last three let you apply a non-default value across an entire batch without editing the CSV — useful when the CSV only really needs to vary `slide_path`/`output_dir`. Each is **mutually exclusive with its CSV column at the batch level**: if `--mpp` is passed, the CSV's `mpp` column must be entirely empty (no row may set it) — if any row does, the script aborts before starting any subprocess and reports the conflict so you can clear the column or drop the CLI flag and re-run:
+   The last three let you apply a non-default value across an entire batch without editing the CSV — useful when the CSV only really needs to vary `slide_path`. Each is **mutually exclusive with its CSV column at the batch level**: if `--mpp` is passed, the CSV's `mpp` column must be entirely empty (no row may set it) — if any row does, the script aborts before starting any subprocess and reports the conflict so you can clear the column or drop the CLI flag and re-run:
    ```bash
-   python code/batch_infer.py --csv_path slides.csv --cell_type_method miphei_multiplex --mpp 0.25
+   python code/batch_infer.py --csv_path slides.csv --output_folder /data/batch_run_1 --cell_type_method miphei_multiplex --mpp 0.25
    ```
 
-   Each slide runs as its own `infer.py` subprocess, pinned to a GPU via `CUDA_VISIBLE_DEVICES` (so all 5 steps land on that device) and isolated from the others — one slide crashing or running out of memory doesn't affect the rest of the batch. Per-slide stdout/stderr is captured to `<output_dir>/batch_run.log`, which duplicates (and, if `infer.py` crashes very early, may capture slightly more than) that slide's own `<output_dir>/pipeline.log`.
+   Each slide runs as its own `infer.py` subprocess, pinned to a GPU via `CUDA_VISIBLE_DEVICES` (so all 5 steps land on that device) and isolated from the others — one slide crashing or running out of memory doesn't affect the rest of the batch. Per-slide stdout/stderr is captured to `<output_folder>/<slide_name>/batch_run.log`, which duplicates (and, if `infer.py` crashes very early, may capture slightly more than) that slide's own `<output_folder>/<slide_name>/pipeline.log`.

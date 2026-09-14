@@ -4,15 +4,18 @@ multiple slides/images listed in a CSV file, in parallel across GPUs.
 
 CSV format (one row per slide):
     slide_path             (required) Path to the slide/image.
-    output_dir             (optional) Defaults to output/<slide_name>, same as infer.py.
     mpp                    (optional) Microns-per-pixel override.
     use_malignant_region   (optional) true/false (also accepts 1/0, yes/no). Defaults to true.
     cell_type_method       (optional) morphology_based/miphei_multiplex/both. Defaults to morphology_based.
 
+Every slide's output goes to <output_folder>/<slide_name> (--output_folder,
+defaults to "output") - there is no per-slide output directory override; all
+outputs for a batch live under one root.
+
 Example CSV:
-    slide_path,output_dir,mpp,use_malignant_region,cell_type_method
-    /data/slideA.svs,,,true,morphology_based
-    /data/slideB.svs,output/slideB_run2,0.25,false,miphei_multiplex
+    slide_path,mpp,use_malignant_region,cell_type_method
+    /data/slideA.svs,,true,morphology_based
+    /data/slideB.svs,0.25,false,miphei_multiplex
 
 Batch-wide overrides: --mpp/--use_malignant_region/--no-use_malignant_region/
 --cell_type_method can also be passed on the command line to apply a
@@ -33,6 +36,7 @@ share a GPU if you have enough VRAM for it).
 
 Usage:
     python batch_infer.py --csv_path slides.csv
+    python batch_infer.py --csv_path slides.csv --output_folder /data/batch_run_1
     python batch_infer.py --csv_path slides.csv --gpu_ids 0,1,2 --num_workers 3
     python batch_infer.py --csv_path slides.csv --cell_type_method miphei_multiplex --mpp 0.25
 """
@@ -104,9 +108,6 @@ def load_jobs(csv_path, mpp_override=None, use_malignant_region_override=None, c
             continue
         slide_path = str(slide_path).strip()
 
-        output_dir = row.get("output_dir") if "output_dir" in df.columns else None
-        output_dir = output_dir if output_dir is not None and pd.notna(output_dir) and str(output_dir).strip() else None
-
         csv_mpp = row.get("mpp") if "mpp" in df.columns else None
         csv_mpp = csv_mpp if csv_mpp is not None and pd.notna(csv_mpp) and str(csv_mpp).strip() else None
         mpp = csv_mpp if csv_mpp is not None else mpp_override
@@ -128,7 +129,6 @@ def load_jobs(csv_path, mpp_override=None, use_malignant_region_override=None, c
 
         jobs.append({
             "slide_path": slide_path,
-            "output_dir": output_dir,
             "mpp": mpp,
             "use_malignant_region": use_malignant_region,
             "cell_type_method": cell_type_method,
@@ -137,9 +137,9 @@ def load_jobs(csv_path, mpp_override=None, use_malignant_region_override=None, c
     return jobs
 
 
-def run_one_slide(job, gpu_id):
+def run_one_slide(job, gpu_id, output_folder):
     slide_name = Path(job["slide_path"]).stem
-    output_dir = job["output_dir"] or os.path.join("output", slide_name)
+    output_dir = os.path.join(output_folder, slide_name)
     os.makedirs(output_dir, exist_ok=True)
 
     cmd = [
@@ -178,16 +178,17 @@ def run_one_slide(job, gpu_id):
     }
 
 
-def worker(gpu_id, jobs, results, results_lock):
+def worker(gpu_id, jobs, output_folder, results, results_lock):
     for job in jobs:
-        result = run_one_slide(job, gpu_id)
+        result = run_one_slide(job, gpu_id, output_folder)
         with results_lock:
             results.append(result)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Batch-run infer.py over multiple slides listed in a CSV file.")
-    parser.add_argument("--csv_path", required=True, help="CSV file with a 'slide_path' column (optional: output_dir, mpp, use_malignant_region).")
+    parser.add_argument("--csv_path", required=True, help="CSV file with a 'slide_path' column (optional: mpp, use_malignant_region, cell_type_method).")
+    parser.add_argument("--output_folder", default="output", help="Root directory for all slides' outputs; each slide is written to <output_folder>/<slide_name>. Defaults to 'output'.")
     parser.add_argument("--gpu_ids", default=None, help="Comma-separated GPU indices to use, e.g. '0,1,2'. Defaults to all GPUs detected.")
     parser.add_argument("--num_workers", type=int, default=None, help="Number of concurrent slides to process. Defaults to the number of --gpu_ids (one slide per GPU); set higher to share GPUs across workers.")
     parser.add_argument("--results_csv", default=None, help="Where to write the summary results CSV. Defaults to '<csv_path stem>_results.csv'.")
@@ -228,7 +229,7 @@ def main():
     results_lock = threading.Lock()
     partitions = [jobs[i::num_workers] for i in range(num_workers)]
     threads = [
-        threading.Thread(target=worker, args=(gpu_ids[i % len(gpu_ids)], partitions[i], results, results_lock))
+        threading.Thread(target=worker, args=(gpu_ids[i % len(gpu_ids)], partitions[i], args.output_folder, results, results_lock))
         for i in range(num_workers)
     ]
     for t in threads:

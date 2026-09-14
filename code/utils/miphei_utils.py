@@ -21,7 +21,7 @@ def predict_multiplex_channels(
     tile_size: int = 256,
     tile_overlap: int = 10,
     batch_size: int = 4,
-    num_workers: int = 8,
+    num_workers: int = 0,
 ) -> str:
     """
     Predict multiplex immunofluorescence (mIF) channels from an H&E slide using MIPHEI-ViT.
@@ -30,10 +30,19 @@ def predict_multiplex_channels(
     (a model-calibration constant, not the slide's own MPP) — leave it at the default unless
     the checkpoint was specifically trained at a different target resolution.
 
-    `num_workers` defaults to a fixed, modest value rather than MIPHEI-ViT's own `-1` sentinel
-    (which resolves to `os.cpu_count() - 1` DataLoader workers): on many-core machines that
-    spawns hundreds of worker processes all competing to read the same slide file, which adds
-    far more contention/overhead than it saves — pass an explicit value to override.
+    `num_workers` defaults to 0 (no worker subprocesses), not MIPHEI-ViT's own `-1` sentinel
+    (which resolves to `os.cpu_count() - 1` DataLoader workers) or any other positive value.
+    By the time this runs, `infer.py` has already initialized CUDA in-process for earlier steps
+    (Trident, tissue-compartment, cell-type prediction); `run_wsi_inference.py`'s DataLoader is
+    constructed with no `multiprocessing_context`, so `num_workers > 0` forks worker processes
+    with the parent's CUDA context already live. That's a documented PyTorch/CUDA hazard, and it
+    doesn't just risk a crash - it manifests as forked workers silently deadlocking at 0% CPU
+    after the very first batch (confirmed via a stuck production batch run: three concurrent
+    slides all hung at tile 1/N for 13-24h, each with 8 `pt_data_worker` children parked on a
+    futex, GPU utilization at 0%). It's timing-dependent - more likely under concurrent
+    multi-process GPU load - which is why a single-slide test run may not reproduce it. 0 avoids
+    the fork entirely by loading tiles on the main process; pass an explicit positive value only
+    if you've verified it's safe in your deployment (e.g. always single-slide, no prior CUDA use).
 
     Returns:
         str: Path to the written pyramidal OME-TIFF (`{slide_stem}.ome.tiff`), with channels

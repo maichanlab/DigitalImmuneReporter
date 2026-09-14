@@ -67,7 +67,13 @@ def detect_cells_binary(
 
     inferer.process_wsi(
         wsi_path=Path(slide_path),
-        wsi_properties={"slide_mpp": slide_mpp},
+        # "magnification" is required by CellViT-plus-plus's load_wsi_meta() - it raises
+        # NotImplementedError if neither this nor the slide's own "openslide.objective-power"
+        # metadata is present (missing on some scanners/converted formats). It's otherwise
+        # unused: only target_mpp (derived from slide_mpp/resolution) drives actual processing,
+        # so the standard mpp->magnification approximation (~0.25 MPP <-> 40x, ~0.5 MPP <-> 20x)
+        # is safe here even though it's not exact for every scanner.
+        wsi_properties={"slide_mpp": slide_mpp, "magnification": 10.0 / slide_mpp},
         resolution=resolution,
         min_intersection_ratio=0.0,  # pathopatch_no_tissue_filter_patch already forces every
         # grid tile "interesting"; this also disables the separate per-patch background-ratio
