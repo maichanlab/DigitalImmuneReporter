@@ -73,15 +73,15 @@ import tifffile
 import torch
 from sklearn.linear_model import LogisticRegression
 
-from utils.slide_io import prepare_openslide_wsi
-from utils.trident_runner import run_trident_preprocessing
-from utils.mmdet_utils import model_fn as load_cell_model, infer_single_wsi as infer_cell_wsi
-from utils.mmseg_utils import model_fn as load_tissue_model, infer_single_wsi as infer_tissue_wsi
-from utils.stabilize_majority_vote import stabilize_majority_vote
-from utils.spatial_feature_computer import SpatialFeatureComputer
+from utils.slide_io.slide_io import prepare_openslide_wsi
+from utils.preprocessing.trident_runner import run_trident_preprocessing
+from utils.mmlab_prediction.mmdet_utils import model_fn as load_cell_model, infer_single_wsi as infer_cell_wsi
+from utils.mmlab_prediction.mmseg_utils import model_fn as load_tissue_model, infer_single_wsi as infer_tissue_wsi
+from utils.preprocessing.stabilize_majority_vote import stabilize_majority_vote
+from utils.spatial_features.spatial_feature_computer import SpatialFeatureComputer
 from utils.logging_utils import setup_logging, TimingTracker
-from utils import miphei_utils, cellvit_utils
-from utils.mif_cell_annotator import (
+from utils.miphei_multiplex_prediction import miphei_utils, cellvit_utils
+from utils.miphei_multiplex_prediction.mif_cell_annotator import (
     convert_contours_to_labeled_mask,
     extract_mean_marker_intensities,
     binarize_markers,
