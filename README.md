@@ -191,13 +191,16 @@ repository/paper itself.
 
 ## License
 
-This repository's code is released under [CC BY-NC 4.0](LICENSE) (Attribution-NonCommercial).
+This repository's own code is released under [Apache License 2.0](LICENSE).
 
-`code/utils/mmlab_prediction/overlap_cell_cleaner.py` is adapted from
-[CellViT-plus-plus](https://github.com/tio-ikim/CellViT-plus-plus) and remains subject to its
-original license terms regardless of the license chosen above: Apache-2.0 modified by a Commons
-Clause (no commercial exploitation without permission from Fabian Hörst and Jens Kleesiek) and a
-mandatory-citation requirement (see the Citations table above).
+Note that this only covers code originating in this repository — it does not extend any rights
+to the third-party software this pipeline depends on, several of which (Trident, CONCH,
+MIPHEI-ViT) are non-commercial-only under their own licenses regardless of the license above (see
+the Citations table above for the full list). `code/utils/mmlab_prediction/overlap_cell_cleaner.py`
+is adapted from [CellViT-plus-plus](https://github.com/tio-ikim/CellViT-plus-plus) and remains
+subject to its original license terms specifically: Apache-2.0 modified by a Commons Clause (no
+commercial exploitation without permission from Fabian Hörst and Jens Kleesiek) and a
+mandatory-citation requirement.
 
 Our own trained model weights (cell-type, tissue-compartment, malignant-region) are released
 separately on Hugging Face under CC-BY-NC-4.0 — see step 2b above.
