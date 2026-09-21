@@ -147,8 +147,12 @@ class TiffWSIReader:
             bands=image.shape[2] if image.ndim == 3 else 1,
             format=pyvips.BandFormat.UCHAR if image.dtype == np.uint8 else pyvips.BandFormat.FLOAT
         )
-        xres = 1000 / custom_mpp  # pixels per cm
-        yres = 1000 / custom_mpp
+        # pixels per cm: 1 cm = 10,000 microns, so pixels/cm = (1 / microns-per-pixel) * 10,000.
+        # (Was 1000/custom_mpp - a 10x error that made every consumer deriving MPP from these
+        # tags, e.g. MIPHEI-ViT's slidevips reader via slidevips_mpp_patch.py, read back an MPP
+        # 10x too coarse for any slide converted through this reader.)
+        xres = 10000 / custom_mpp
+        yres = 10000 / custom_mpp
 
         vips_image.tiffsave(
             output_path,

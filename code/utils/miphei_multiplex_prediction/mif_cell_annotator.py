@@ -249,6 +249,13 @@ def annotate_cell_hierarchy(df: pd.DataFrame, hierarchy: list, nuclear_marker: O
     def marker_to_col(marker: str) -> str:
         return f"{marker.rstrip('+-')}_binarized"
 
+    def marker_condition_mask(df, marker: str) -> pd.Series:
+        """Boolean mask for one marker string's own condition: `"<Marker>+"` -> binarized
+        column == 1, `"<Marker>-"` -> binarized column == 0. `validate_cell_hierarchy` already
+        enforces every marker ends in '+'/'-'."""
+        is_positive = df[marker_to_col(marker)] == 1
+        return is_positive if marker.endswith("+") else ~is_positive
+
     def get_hierarchy_depth(nodes: List[Dict], depth=1) -> int:
         max_depth = depth
         for node in nodes:
@@ -266,10 +273,9 @@ def annotate_cell_hierarchy(df: pd.DataFrame, hierarchy: list, nuclear_marker: O
         group_masks = []
         for m in markers:
             if isinstance(m, list):
-                cols = [marker_to_col(x) for x in m]
-                mask = df[cols].all(axis=1)
+                mask = pd.concat([marker_condition_mask(df, x) for x in m], axis=1).all(axis=1)
             else:
-                mask = df[marker_to_col(m)]
+                mask = marker_condition_mask(df, m)
             group_masks.append(mask)
         if not group_masks:
             return pd.Series(False, index=df.index)
@@ -295,7 +301,11 @@ def annotate_cell_hierarchy(df: pd.DataFrame, hierarchy: list, nuclear_marker: O
                 else:
                     flat_markers.append(m)
             presence_cols = [marker_to_col(x) for x in flat_markers]
-            presence_mask = df[presence_cols].any(axis=1)
+            # Sign-aware, like logic_mask above - a "-" marker's own condition being met (i.e.
+            # the underlying channel reading NEGATIVE) is what counts as this node showing
+            # evidence, not raw column positivity (which would make e.g. CD163+ M2 and CD163-
+            # M1 look simultaneously "present" for every cell, since it's the same raw column).
+            presence_mask = pd.concat([marker_condition_mask(df, x) for x in flat_markers], axis=1).any(axis=1)
 
             full_name = name if prefix == "" else f"{prefix}::{name}"
             program_marker_cols[full_name] = presence_cols

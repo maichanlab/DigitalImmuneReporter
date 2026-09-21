@@ -19,8 +19,8 @@ classes = (
     'Neutrophil',
     'Tumor',
     'Lymphocyte',
-    'Plasmacell',
     'Eosinophil',
+    'Plasmacell',
     'Other',
 )
 combined_train_dataset = dict(
@@ -40,8 +40,8 @@ combined_train_dataset = dict(
                     'Neutrophil',
                     'Tumor',
                     'Lymphocyte',
-                    'Plasmacell',
                     'Eosinophil',
+                    'Plasmacell',
                     'Other',
                 )),
             pipeline=[
@@ -135,8 +135,8 @@ combined_train_dataset = dict(
                     'Neutrophil',
                     'Tumor',
                     'Lymphocyte',
-                    'Plasmacell',
                     'Eosinophil',
+                    'Plasmacell',
                     'Other',
                 )),
             pipeline=[
@@ -358,8 +358,8 @@ lizard_dataset = dict(
             'Neutrophil',
             'Tumor',
             'Lymphocyte',
-            'Plasmacell',
             'Eosinophil',
+            'Plasmacell',
             'Other',
         )),
     pipeline=[
@@ -751,8 +751,8 @@ tcgacrc_dataset = dict(
             'Neutrophil',
             'Tumor',
             'Lymphocyte',
-            'Plasmacell',
             'Eosinophil',
+            'Plasmacell',
             'Other',
         )),
     pipeline=[
@@ -847,8 +847,8 @@ test_dataloader = dict(
                 'Neutrophil',
                 'Tumor',
                 'Lymphocyte',
-                'Plasmacell',
                 'Eosinophil',
+                'Plasmacell',
                 'Other',
             )),
         pipeline=[
@@ -928,8 +928,8 @@ train_dataloader = dict(
                         'Neutrophil',
                         'Tumor',
                         'Lymphocyte',
-                        'Plasmacell',
                         'Eosinophil',
+                        'Plasmacell',
                         'Other',
                     )),
                 pipeline=[
@@ -1023,8 +1023,8 @@ train_dataloader = dict(
                         'Neutrophil',
                         'Tumor',
                         'Lymphocyte',
-                        'Plasmacell',
                         'Eosinophil',
+                        'Plasmacell',
                         'Other',
                     )),
                 pipeline=[
@@ -1195,8 +1195,8 @@ val_dataloader = dict(
                 'Neutrophil',
                 'Tumor',
                 'Lymphocyte',
-                'Plasmacell',
                 'Eosinophil',
+                'Plasmacell',
                 'Other',
             )),
         pipeline=[

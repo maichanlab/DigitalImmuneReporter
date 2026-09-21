@@ -22,7 +22,16 @@ Prerequisite: The pipeline inference requires a CUDA GPU to run. Visit https://c
           huggingface-cli download MahmoodLab/CONCH pytorch_model.bin --local-dir model_weights/malignant_region_identification
           ```
 
-   2b. Download our in-house trained model checkpoints from **[TODO: Zenodo record URL/DOI, not yet published]** and place them at:
+   2b. Download our in-house trained model checkpoints, published on Hugging Face (public, no
+       login/gating needed):
+
+       ```bash
+       huggingface-cli download maichanlab/dir-crc-malignant-region-logreg --local-dir model_weights/malignant_region_identification
+       huggingface-cli download maichanlab/dir-crc-tissue-compartment-segformer --local-dir model_weights/tissue_compartment_segmentation
+       huggingface-cli download maichanlab/dir-crc-morphology-cell-type-mask2former --local-dir model_weights/cell_type_prediction
+       ```
+
+       This places:
 
        ```
        model_weights/
@@ -36,7 +45,11 @@ Prerequisite: The pipeline inference requires a CUDA GPU to run. Visit https://c
            mask2former_swin-s-3x_dataset_tcga_lizard_class_weight_log_count.py
        ```
 
-       This section will be replaced with the actual Zenodo link and download command once the record is published.
+       (each command also downloads that repo's own `README.md` alongside the checkpoint/config —
+       harmless, safe to leave in place or delete.) Repos:
+       [dir-crc-malignant-region-logreg](https://huggingface.co/maichanlab/dir-crc-malignant-region-logreg),
+       [dir-crc-tissue-compartment-segformer](https://huggingface.co/maichanlab/dir-crc-tissue-compartment-segformer),
+       [dir-crc-morphology-cell-type-mask2former](https://huggingface.co/maichanlab/dir-crc-morphology-cell-type-mask2former).
 
    2c. `--cell_type_method miphei_multiplex`/`both` needs two more checkpoints that are **not**
        part of our in-house release — they're published by MIPHEI-ViT and CellViT-plus-plus
@@ -99,9 +112,9 @@ Prerequisite: The pipeline inference requires a CUDA GPU to run. Visit https://c
    2. `predict_malignant_region` — malignant/non-malignant patch classification → `malignant_region_mask.tif` (compressed, skipped if `--no-use_malignant_region`)
    3. `predict_tissue_compartment` — tumor/stroma/necrosis/other segmentation → `tissue_compartment_mask_raw.tif` (before combining with the malignant region, compressed) and `tissue_compartment_mask_combined.tif` (restricted to the malignant region — the final result; identical to the raw mask if Step 2 was skipped; compressed)
    4. `predict_cell_type` (`--cell_type_method morphology_based`, the default) — cell-level instance segmentation and typing (6 fixed classes: tumor, lymphocyte, neutrophil, plasmacell, eosinophil, other) → `cell_type_predictions.json`
-   4b. `predict_miphei_multiplex_cell_type` (`--cell_type_method miphei_multiplex`) — protein-marker-driven cell typing, in three sub-steps: (i) predict multiplex (mIF) channels from the H&E via MIPHEI-ViT, (ii) detect cells (binary, no typing) via CellViT-plus-plus, (iii) type each detected cell by thresholding its mean predicted marker intensity against a fixed hierarchy (Tumour[Pan-CK+]; T Cell[CD3e+] → CytotoxicT[CD8a+]/Helper T[CD4+]; B Cell[CD20+]; Macrophage[CD68+]) → `miphei_cell_type_predictions.json`. With `--cell_type_method both`, both Step 4 and Step 4b run.
+   4b. `predict_miphei_multiplex_cell_type` (`--cell_type_method miphei_multiplex`) — protein-marker-driven cell typing, in three sub-steps: (i) predict multiplex (mIF) channels from the H&E via MIPHEI-ViT, (ii) detect cells (binary, no typing) via CellViT-plus-plus, (iii) type each detected cell by thresholding its mean predicted marker intensity against a fixed hierarchy (Tumour[Pan-CK+] → Proliferative Tumour[Ki67+]; T Cell[CD3e+] → Cytotoxic T[CD8a+] / Helper T[CD4+] → Regulatory T[FOXP3+]; B Cell[CD20+]; Macrophage[CD68+] → M2 Macrophage[CD163+] / M1 Macrophage[CD163-]) → `miphei_cell_type_predictions.json`. With `--cell_type_method both`, both Step 4 and Step 4b run.
    5. `compute_spatial_features` — spatial TIME (tumor immune microenvironment) feature computation + report generation, from whichever Step 4 output(s) ran (with `--cell_type_method both`, this runs twice, into `spatial_features_morphology_based/` and `spatial_features_miphei_multiplex/` subdirectories):
-      - `features.csv` — every computed feature: cell densities per tissue region (per cell type, and per marker-hierarchy level when using `miphei_multiplex`), G-cross tumor–immune proximity AUCs, CT (core tumor) / PT (peritumoral) relative abundance and CT/PT ratios, tumor–stroma percentage, cell counts/abundance, and (morphology_based taxonomy only) neutrophil/lymphocyte ratio
+      - `features.csv` — every computed feature: cell densities per tissue region (per cell type, and per marker-hierarchy level when using `miphei_multiplex`), G-cross tumor–immune proximity AUCs, CT (core tumor) / PT (peritumoral) relative abundance and CT/PT ratios, tumor–stroma percentage, cell counts/abundance, (morphology_based taxonomy only) neutrophil/lymphocyte ratio, and (miphei_multiplex taxonomy only) proliferative-tumour %, M1/M2 macrophage % and ratio, and effector-T-cell %
       - `digital_immune_report.pdf` — H&E/tissue/malignant-region thumbnails, cell count & tissue area tables, per-tissue-region density table, CT/PT segmentation plot and relative-abundance table
       - `area_table.csv`, `cell_table.csv` — supporting per-tissue-area and per-cell intermediate tables
 
@@ -148,3 +161,43 @@ Prerequisite: The pipeline inference requires a CUDA GPU to run. Visit https://c
    ```
 
    Each slide runs as its own `infer.py` subprocess, pinned to a GPU via `CUDA_VISIBLE_DEVICES` (so all 5 steps land on that device) and isolated from the others — one slide crashing or running out of memory doesn't affect the rest of the batch. Per-slide stdout/stderr is captured to `<output_folder>/<slide_name>/batch_run.log`, which duplicates (and, if `infer.py` crashes very early, may capture slightly more than) that slide's own `<output_folder>/<slide_name>/pipeline.log`.
+
+## Citing dependencies & third-party components
+
+This pipeline builds on the following external software and datasets. If you use DIR in your
+work, please also cite the components relevant to the steps you ran, in addition to citing this
+repository/paper itself.
+
+**Software**
+
+| Component | Used for | License | Citation |
+|-----------|----------|---------|----------|
+| [MMDetection](https://github.com/open-mmlab/mmdetection) | Cell-type model (Mask2Former) | Apache-2.0 | Chen, K. et al. (2019). *MMDetection: Open MMLab Detection Toolbox and Benchmark*. arXiv:1906.07155. |
+| [MMSegmentation](https://github.com/open-mmlab/mmsegmentation) | Tissue-compartment model (SegFormer) | Apache-2.0 | MMSegmentation Contributors (2020). *MMSegmentation: OpenMMLab Semantic Segmentation Toolbox and Benchmark*. https://github.com/open-mmlab/mmsegmentation |
+| [Trident](https://github.com/mahmoodlab/trident) | Step 1 tissue segmentation + CONCH patch feature extraction | CC-BY-NC-ND-4.0 | Zhang, A., Jaume, G., Vaidya, A., Ding, T., & Mahmood, F. (2025). *Accelerating Data Processing and Benchmarking of AI Models for Pathology*. arXiv:2502.06750. |
+| [CONCH](https://github.com/mahmoodlab/CONCH) | Malignant-region patch embeddings | CC-BY-NC-ND-4.0 (gated) | Lu, M.Y. et al. (2024). *A visual-language foundation model for computational pathology*. Nature Medicine, 30, 863–874. |
+| [MIPHEI-ViT](https://github.com/sanofi-public/miphei-vit) | Step 4b virtual multiplex staining | Non-commercial academic (Sanofi) | Balezo, G., Trullo, R., Pla Planas, A., Decenciere, E., & Walter, T. (2026). *MIPHEI-ViT: Multiplex immunofluorescence prediction from H&E images using ViT foundation models*. Computers in Biology and Medicine, 206, 111564. |
+| [H-optimus-0](https://huggingface.co/bioptimus/H-optimus-0) | MIPHEI-ViT's encoder backbone | Apache-2.0 (gated) | Saillard, C. et al. (2024). *H-optimus-0*. https://github.com/bioptimus/releases/tree/main/models/h-optimus/v0 |
+| [CellViT-plus-plus](https://github.com/tio-ikim/CellViT-plus-plus) | Step 4b binary cell detection; `code/utils/mmlab_prediction/overlap_cell_cleaner.py` is adapted from its postprocessing code (see License below) | Apache-2.0 + Commons Clause (non-commercial) for the parts used here | Hörst, F. et al. (2023). *CellViT: Vision Transformers for precise cell segmentation and classification*. arXiv:2306.15350. **and** Hörst, F., Rempe, M., Becker, H., Heine, L., Keyl, J., & Kleesiek, J. (2025). *CellViT++: Energy-Efficient and Adaptive Cell Segmentation and Classification Using Foundation Models*. arXiv:2501.05269. |
+| [OpenSlide](https://openslide.org/) | Whole-slide image I/O | LGPL-2.1 | Goode, A., Gilbert, B., Harkes, J., Jukic, D., & Satyanarayanan, M. (2013). *OpenSlide: A vendor-neutral software foundation for digital pathology*. Journal of Pathology Informatics, 4(1), 27. |
+
+**Datasets** (see also the model cards linked in step 2b for which model was trained on which)
+
+| Dataset | Used for | Citation |
+|---------|----------|----------|
+| TCGA-CRC ([GDC Data Portal](https://portal.gdc.cancer.gov)) | Cell-type and tissue-compartment model training/validation; malignant-region validation cohort | The Cancer Genome Atlas Research Network, via the [NCI Genomic Data Commons](https://portal.gdc.cancer.gov). |
+| [Lizard](https://www.kaggle.com/datasets/aadimator/conic-challenge-dataset) | Cell-type model training | Graham, S. et al. (2021). *Lizard: A Large-Scale Dataset for Colonic Nuclear Instance Segmentation and Classification*. arXiv:2108.11195 (ICCV Workshops). |
+| [HunCRC](https://doi.org/10.6084/m9.figshare.c.5927795.v1) | Malignant-region model training | Pataki, B.Á. et al. (2022). *HunCRC: annotated pathological slides to enhance deep learning applications in colorectal cancer screening*. Scientific Data, 9, 370. |
+
+## License
+
+This repository's code is released under [CC BY-NC 4.0](LICENSE) (Attribution-NonCommercial).
+
+`code/utils/mmlab_prediction/overlap_cell_cleaner.py` is adapted from
+[CellViT-plus-plus](https://github.com/tio-ikim/CellViT-plus-plus) and remains subject to its
+original license terms regardless of the license chosen above: Apache-2.0 modified by a Commons
+Clause (no commercial exploitation without permission from Fabian Hörst and Jens Kleesiek) and a
+mandatory-citation requirement (see the Citations table above).
+
+Our own trained model weights (cell-type, tissue-compartment, malignant-region) are released
+separately on Hugging Face under CC-BY-NC-4.0 — see step 2b above.

@@ -255,8 +255,10 @@ class CZIReader:
                 format=pyvips.BandFormat.UCHAR if image.dtype == np.uint8 else pyvips.BandFormat.FLOAT
             )
             mpp = self.properties["openslide.mirax.MPP"]
-            xres = 1000 / mpp  # pixels per cm
-            yres = 1000 / mpp
+            # pixels per cm: 1 cm = 10,000 microns (see tiff_wsi_reader.py's identical fix
+            # for the "consumers reading MPP back from this get 10x the wrong value" bug).
+            xres = 10000 / mpp
+            yres = 10000 / mpp
 
             # Save pyramidal tiled BigTIFF (SVS-compatible for most tools)
             vips_image.tiffsave(
@@ -293,8 +295,10 @@ class CZIReader:
                     format=pyvips.BandFormat.UCHAR if image.dtype == np.uint8 else pyvips.BandFormat.FLOAT
                 )
                 mpp = self.properties["openslide.mirax.MPP"]
-                xres = 1000 / mpp  # pixels per cm
-                yres = 1000 / mpp
+                # pixels per cm: 1 cm = 10,000 microns (see tiff_wsi_reader.py's identical fix
+                # for the "consumers reading MPP back from this get 10x the wrong value" bug).
+                xres = 10000 / mpp
+                yres = 10000 / mpp
 
                 # Save pyramidal tiled BigTIFF (SVS-compatible for most tools)
                 vips_image.tiffsave(

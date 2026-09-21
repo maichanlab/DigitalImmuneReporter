@@ -101,8 +101,16 @@ TISSUE_MODEL_CONFIG = MODEL_WEIGHTS_DIR / "tissue_compartment_segmentation" / "s
 CELL_MODEL_CKPT = MODEL_WEIGHTS_DIR / "cell_type_prediction" / "epoch_36.pth"
 CELL_MODEL_CONFIG = MODEL_WEIGHTS_DIR / "cell_type_prediction" / "mask2former_swin-s-3x_dataset_tcga_lizard_class_weight_log_count.py"
 
-CELL_ID2LABEL = {1: "Neutrophil", 2: "Tumor cell", 3: "Lymphocyte", 4: "Eosinophil", 5: "Plasmacell", 6: "Other"}
-TISSUE_ID2LABEL = {1: "Tumor", 2: "Stroma", 3: "Necrosis", 4: "Other"}
+
+def _id2label_from_dataset_meta(dataset_meta):
+    """Build a {class_id: label} map from an mmengine model's `dataset_meta`, which
+    init_model()/init_detector() populate from the training checkpoint's own saved metadata
+    (see model_weights/.../*.py configs' `classes`) - not the config file's `classes` tuple
+    directly, since a custom dataset type's classes aren't always spelled out in the config
+    text itself. Class id 0 is always the background/unlabeled class and is dropped.
+    """
+    return {i: label for i, label in enumerate(dataset_meta["classes"]) if i != 0}
+
 
 # Step 4b (miphei_multiplex cell typing): external repos, cloned by setup_env.sh into
 # code/external/ (see there) and registered on sys.path at call time (neither ships a
@@ -125,17 +133,36 @@ MIPHEI_MARKER_CHANNELS_FULL = [
 MIPHEI_NUCLEUS_MARKER = "Hoechst"
 
 MIPHEI_MULTIPLEX_HIERARCHY = [
-    {"name": "Tumour", "markers": ["Pan-CK+"]},
+    {
+        "name": "Tumour",
+        "markers": ["Pan-CK+"],
+        "subtypes": [
+            {"name": "Proliferative Tumour", "markers": ["Ki67+"]},
+        ],
+    },
     {
         "name": "T Cell",
         "markers": ["CD3e+"],
         "subtypes": [
-            {"name": "CytotoxicT", "markers": ["CD8a+"]},
-            {"name": "Helper T", "markers": ["CD4+"]},
+            {"name": "Cytotoxic T", "markers": ["CD8a+"]},
+            {
+                "name": "Helper T",
+                "markers": ["CD4+"],
+                "subtypes": [
+                    {"name": "Regulatory T", "markers": ["FOXP3+"]},
+                ],
+            },
         ],
     },
     {"name": "B Cell", "markers": ["CD20+"]},
-    {"name": "Macrophage", "markers": ["CD68+"]},
+    {
+        "name": "Macrophage",
+        "markers": ["CD68+"],
+        "subtypes": [
+            {"name": "M2 Macrophage", "markers": ["CD163+"]},
+            {"name": "M1 Macrophage", "markers": ["CD163-"]},
+        ],
+    },
 ]
 
 
@@ -216,7 +243,8 @@ def predict_tissue_compartment(slide_path, geojson_path, malignant_mask, mpp, de
     used as-is.
 
     Returns:
-        Tuple[np.ndarray, np.ndarray]: (raw tissue-compartment mask, combined mask).
+        Tuple[np.ndarray, np.ndarray, dict]: (raw tissue-compartment mask, combined mask,
+        tissue_id2label).
     """
     logger.info("Step 3: Tissue compartment segmentation...")
     logger.info(f"Loading tissue-compartment model from {TISSUE_MODEL_CKPT}")
@@ -225,6 +253,7 @@ def predict_tissue_compartment(slide_path, geojson_path, malignant_mask, mpp, de
         checkpoint_file_path=str(TISSUE_MODEL_CKPT),
         device=device,
     )
+    tissue_id2label = _id2label_from_dataset_meta(model.dataset_meta)
     tissue_mask = infer_tissue_wsi(
         slide_path,
         model,
@@ -252,12 +281,12 @@ def predict_tissue_compartment(slide_path, geojson_path, malignant_mask, mpp, de
 
     total_px = combined_tissue_mask.size
     label_breakdown = {
-        TISSUE_ID2LABEL.get(label_id, f"id={label_id}"): f"{(combined_tissue_mask == label_id).sum() / total_px * 100:.1f}%"
+        tissue_id2label.get(label_id, f"id={label_id}"): f"{(combined_tissue_mask == label_id).sum() / total_px * 100:.1f}%"
         for label_id in np.unique(combined_tissue_mask)
-        if label_id in TISSUE_ID2LABEL
+        if label_id in tissue_id2label
     }
     logger.info(f"Tissue compartment segmentation done. Area breakdown: {label_breakdown}")
-    return tissue_mask, combined_tissue_mask
+    return tissue_mask, combined_tissue_mask, tissue_id2label
 
 
 def predict_cell_type(slide_path, geojson_path, mpp, device, output_dir):
@@ -269,6 +298,7 @@ def predict_cell_type(slide_path, geojson_path, mpp, device, output_dir):
         checkpoint_file_path=str(CELL_MODEL_CKPT),
         device=device,
     )
+    cell_id2label = _id2label_from_dataset_meta(model.dataset_meta)
 
     cell_output_path = None
     for batch_size, chunk_size in zip([16, 8, 4, 2], [2048, 1024, 512, 256]):
@@ -307,10 +337,10 @@ def predict_cell_type(slide_path, geojson_path, mpp, device, output_dir):
     scores = [c["score"] for c in cells]
 
     unique, counts = np.unique(labels, return_counts=True) if labels else ([], [])
-    label_breakdown = {CELL_ID2LABEL.get(int(label_id), f"id={label_id}"): int(count) for label_id, count in zip(unique, counts)}
+    label_breakdown = {cell_id2label.get(int(label_id), f"id={label_id}"): int(count) for label_id, count in zip(unique, counts)}
     logger.info(f"Cell type prediction done. {len(centroids)} cells detected: {label_breakdown}")
     logger.info(f"Cell predictions saved: {cell_json_path}")
-    return cell_json_path, centroids, contours, labels, scores
+    return cell_json_path, centroids, contours, labels, scores, cell_id2label
 
 
 def predict_miphei_multiplex_cell_type(slide_path, slide_width, slide_height, mpp, output_dir, gpu=0):
@@ -500,7 +530,7 @@ def main():
 
     # Step 3
     timing_tracker.start_step("3. Tissue compartment segmentation")
-    tissue_mask, combined_tissue_mask = predict_tissue_compartment(slide_path, geojson_path, malignant_mask, final_mpp, device, output_dir)
+    tissue_mask, combined_tissue_mask, tissue_id2label = predict_tissue_compartment(slide_path, geojson_path, malignant_mask, final_mpp, device, output_dir)
     tissue_mask_raw_path = os.path.join(output_dir, "tissue_compartment_mask_raw.tif")
     tifffile.imwrite(tissue_mask_raw_path, tissue_mask, compression="zlib")
     logger.info(f"Original (pre-combination) tissue compartment mask saved: {tissue_mask_raw_path}")
@@ -512,11 +542,12 @@ def main():
     # Step 4
     cell_json_path = None
     cell_hierarchy_json_path = None
+    cell_id2label = None
     num_cells_detected = 0
 
     if args.cell_type_method in ("morphology_based", "both"):
         timing_tracker.start_step("4. Cell type prediction (morphology_based)")
-        cell_json_path, centroids, contours, labels, scores = predict_cell_type(slide_path, geojson_path, final_mpp, device, output_dir)
+        cell_json_path, centroids, contours, labels, scores, cell_id2label = predict_cell_type(slide_path, geojson_path, final_mpp, device, output_dir)
         num_cells_detected = len(centroids)
         timing_tracker.end_step("4. Cell type prediction (morphology_based)")
 
@@ -562,8 +593,8 @@ def main():
     timing_tracker.end_step("5. Spatial feature computation")
 
     logger.info("Pipeline complete.")
-    logger.info(f"Tissue compartment labels: {TISSUE_ID2LABEL}")
-    logger.info(f"Cell-type method(s): {args.cell_type_method}" + (f" (morphology_based labels: {CELL_ID2LABEL})" if cell_json_path else ""))
+    logger.info(f"Tissue compartment labels: {tissue_id2label}")
+    logger.info(f"Cell-type method(s): {args.cell_type_method}" + (f" (morphology_based labels: {cell_id2label})" if cell_json_path else ""))
     logger.info(f"Detected cells: {num_cells_detected}")
     logger.info(f"All outputs saved to: {output_dir}")
     timing_tracker.log_summary()

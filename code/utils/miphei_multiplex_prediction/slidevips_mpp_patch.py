@@ -48,7 +48,17 @@ def _patched_get_pyramid_pyvips(filename: str, channel_idxs: Optional[List[int]]
         except Exception:
             n_levels = int(fields.get("n-pages"))
         for level in range(n_levels):
-            image = pyvips.Image.new_from_file(filename, level=level, access="sequential")
+            try:
+                image = pyvips.Image.new_from_file(filename, level=level, access="sequential")
+            except pyvips.error.Error:
+                # Not every ".svs"/".ndpi"-suffixed file is actually openslide-loadable - a
+                # slide converted from a plain image (e.g. a single H&E tile, via this
+                # pipeline's slide_io.TiffWSIReader) is really just a generic pyramidal TIFF
+                # wearing an ".svs" extension, so pyvips's own format auto-detection picks its
+                # plain TIFF loader instead of its openslide one - which selects a pyramid
+                # level via "page", not "level" (same convention the .tif/.tiff branch below
+                # already uses).
+                image = pyvips.Image.new_from_file(filename, page=level, access="sequential")
             if channel_idxs is not None:
                 image = image[channel_idxs]
             pyramid_image.append(image)

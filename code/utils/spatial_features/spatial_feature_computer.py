@@ -36,7 +36,7 @@ from .tumor_region_identifier import TumorRegionIdentifier
 logger = logging.getLogger(__name__)
 
 DEFAULT_TISSUE_ID2LABEL = {0: "background", 1: "tumor", 2: "stroma", 3: "necrosis", 4: "other"}
-DEFAULT_CELL_ID2LABEL = {1: "neutrophil", 2: "tumor", 3: "lymphocyte", 4: "eosinophil", 5: "plasmacell", 6: "other"}
+DEFAULT_CELL_ID2LABEL = {1: "neutrophil", 2: "tumor", 3: "lymphocyte", 4: "plasmacell", 5: "eosinophil", 6: "other"}
 
 
 class SpatialFeatureComputer:
@@ -319,12 +319,62 @@ class SpatialFeatureComputer:
             output[f"{row['cell_label']}_count"] = row["count"]
             output[f"{row['cell_label']}_abundance"] = row["abundance"]
 
+        # ----- MARKER-HIERARCHY DERIVED BIOMARKERS -----
+        # Percentages/ratios specific to the miphei_multiplex marker hierarchy's Tumour/
+        # Macrophage/T Cell subtypes. Each is gated on those subtype names actually being
+        # defined in the hierarchy (same pattern as NLR below), so this is a silent no-op - not
+        # a misleading 0 - for any taxonomy that doesn't define them (e.g. morphology_based).
+        all_categories = {c for cats in self.level_categories.values() for c in cats}
+        finest_level = self.hierarchy_levels[-1] if self.hierarchy_levels else None
+
+        def _finest_count(*names):
+            # Count by the deepest hierarchy level rather than a fixed "level_N", so this stays
+            # correct regardless of how deep a given subtype sits in the hierarchy: every cell's
+            # finest level holds its own most-specific resolved label (annotate_cell_hierarchy
+            # backfills a parent's label down through every level a cell has no deeper match
+            # for), so e.g. a non-Treg Helper T cell's finest level reads "Helper T", not
+            # "Regulatory T" or "Other".
+            if finest_level is None:
+                return 0
+            return int(cell_table[finest_level].isin(names).sum())
+
+        def _top_count(name):
+            # cell_label == the hierarchy's top (level_1) category - see generate_cell_table().
+            return int((cell_table["cell_label"] == name).sum())
+
+        def _safe_pct(numerator, denominator):
+            return (numerator / denominator * 100) if denominator else 0
+
+        def _safe_ratio(a, b):
+            return a if b == 0 else a / b
+
+        if {"Tumour", "Proliferative Tumour"} <= all_categories:
+            output["proliferative_tumour_percentage"] = _safe_pct(
+                _finest_count("Proliferative Tumour"), _top_count("Tumour")
+            )
+
+        if {"Macrophage", "M1 Macrophage", "M2 Macrophage"} <= all_categories:
+            m1_count = _finest_count("M1 Macrophage")
+            m2_count = _finest_count("M2 Macrophage")
+            macrophage_count = _top_count("Macrophage")
+            output["m1_macrophage_percentage"] = _safe_pct(m1_count, macrophage_count)
+            output["m2_macrophage_percentage"] = _safe_pct(m2_count, macrophage_count)
+            output["m1_to_m2_macrophage_ratio"] = _safe_ratio(m1_count, m2_count)
+
+        if {"T Cell", "Cytotoxic T", "Helper T", "Regulatory T"} <= all_categories:
+            # Effector T = Cytotoxic T, or Helper T cells that are NOT Regulatory T. Regulatory
+            # T is a subtype of Helper T, so a non-Treg helper cell's *finest* level reads
+            # "Helper T" (backfilled, since it matched no deeper subtype) while a Treg cell's
+            # reads "Regulatory T" - so filtering the finest level to these two names already
+            # excludes Treg cells without needing a separate exclusion check.
+            effector_count = _finest_count("Cytotoxic T", "Helper T")
+            output["effector_t_cell_percentage"] = _safe_pct(effector_count, _top_count("T Cell"))
+
         # ----- NLR -----
         # Only meaningful for taxonomies that actually distinguish neutrophils from
         # lymphocytes (the legacy morphology_based taxonomy); a marker hierarchy without those
         # categories has no NLR equivalent, so the feature is simply omitted rather than
         # reported as a misleading 0.
-        all_categories = {c for cats in self.level_categories.values() for c in cats}
         if {"neutrophil", "lymphocyte"} <= all_categories:
             neutrophil = output.get("neutrophil_count", 0)
             lymphocyte = output.get("lymphocyte_count", 0)
@@ -558,6 +608,15 @@ class SpatialFeatureComputer:
             other_rows.append(
                 ["Neutrophil/Lymphocyte Ratio", round(self.features["neutrophil_to_lymphocyte_ratio"], 3)]
             )
+        for feature_key, label in [
+            ("proliferative_tumour_percentage", "Proliferative Tumour (% of Tumour)"),
+            ("m1_macrophage_percentage", "M1 Macrophage (% of Macrophage)"),
+            ("m2_macrophage_percentage", "M2 Macrophage (% of Macrophage)"),
+            ("m1_to_m2_macrophage_ratio", "M1:M2 Macrophage Ratio"),
+            ("effector_t_cell_percentage", "Effector T Cells (% of T Cell)"),
+        ]:
+            if feature_key in self.features:
+                other_rows.append([label, round(self.features[feature_key], 3)])
 
         elements.append(Table([["Metric", "Value"]] + other_rows))
         elements.append(PageBreak())
