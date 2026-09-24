@@ -13,13 +13,22 @@ class TiffWSIReader:
 
     def __init__(self, image_path):
         self.image_path = Path(image_path)
-        self.tf = tiff.TiffFile(self.image_path)
-        s = self.tf.series[0]
-
         self._arr = None
 
-        self.height = s.shape[0]
-        self.width = s.shape[1]
+        try:
+            self.tf = tiff.TiffFile(self.image_path)
+            s = self.tf.series[0]
+            self.height = s.shape[0]
+            self.width = s.shape[1]
+        except tiff.TiffFileError:
+            # Not an actual TIFF (e.g. a plain .jpg/.png tile, despite this class's name -
+            # slide_io.py routes any non-.czi format here, including non-TIFF raster formats).
+            # tifffile stays the default since it's more robust than PIL for large/multi-page/
+            # exotically-compressed TIFFs specifically; this is a fallback, not a replacement.
+            self.tf = None
+            with Image.open(self.image_path) as img:
+                self.width, self.height = img.size
+
         self.dimensions = (self.width, self.height)
 
     def _downsample(self, level=None, width=None, height=None):
@@ -67,7 +76,10 @@ class TiffWSIReader:
         """Load image."""
         if self._arr is not None:
             return
-        self._arr = tiff.imread(self.image_path)
+        if self.tf is not None:
+            self._arr = tiff.imread(self.image_path)
+        else:
+            self._arr = np.array(Image.open(self.image_path).convert("RGB"))
 
     def get_thumbnail_np(self, size):
 

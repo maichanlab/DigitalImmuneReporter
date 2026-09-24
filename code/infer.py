@@ -98,9 +98,10 @@ CONCH_ENCODER_PATH = MODEL_WEIGHTS_DIR / "malignant_region_identification" / "py
 MALIGNANT_LOGREG_PATH = MODEL_WEIGHTS_DIR / "malignant_region_identification" / "logreg_conch_model_20260204.json"
 TISSUE_MODEL_CKPT = MODEL_WEIGHTS_DIR / "tissue_compartment_segmentation" / "iter_40000.pth"
 TISSUE_MODEL_CONFIG = MODEL_WEIGHTS_DIR / "tissue_compartment_segmentation" / "segformer_b3_40k_2xb4_tcgacrc_tissue_augment.py"
-CELL_MODEL_CKPT = MODEL_WEIGHTS_DIR / "cell_type_prediction" / "epoch_36.pth"
-CELL_MODEL_CONFIG = MODEL_WEIGHTS_DIR / "cell_type_prediction" / "mask2former_swin-s-3x_dataset_tcga_lizard_class_weight_log_count.py"
-
+# CELL_MODEL_CKPT = MODEL_WEIGHTS_DIR / "cell_type_prediction" / "epoch_36.pth"
+# CELL_MODEL_CONFIG = MODEL_WEIGHTS_DIR / "cell_type_prediction" / "mask2former_swin-s-3x_dataset_tcga_lizard_class_weight_log_count.py"
+CELL_MODEL_CONFIG = "/data_g2/home/tanweikit/mmdetection/20250429_cell_segm_tcgacrc/work_dirs/mask2former_swin-s-3x_tcga_lizard_pcitb_256px_0.5mpp_class_weight_log_count/mask2former_swin-s-3x_tcga_lizard_pcitb_256px_0.5mpp_class_weight_log_count.py"
+CELL_MODEL_CKPT = "/data_g2/home/tanweikit/mmdetection/20250429_cell_segm_tcgacrc/work_dirs/mask2former_swin-s-3x_tcga_lizard_pcitb_256px_0.5mpp_class_weight_log_count/epoch_36.pth"
 
 def _id2label_from_dataset_meta(dataset_meta):
     """Build a {class_id: label} map from an mmengine model's `dataset_meta`, which

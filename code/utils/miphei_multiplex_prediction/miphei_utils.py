@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from . import slidevips_mpp_patch
+from .. import pyvips_pyramid_tiffsave_patch
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ def predict_multiplex_channels(
         named per the checkpoint's `config.yaml: data.targ_channel_names`.
     """
     slidevips_mpp_patch.apply(repo_root)
+    pyvips_pyramid_tiffsave_patch.apply()
     from run_wsi_inference import wsi_inference
 
     logger.info(
