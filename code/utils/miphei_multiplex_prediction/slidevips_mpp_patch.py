@@ -36,13 +36,23 @@ def _patched_get_pyramid_pyvips(filename: str, channel_idxs: Optional[List[int]]
         if "openslide.mpp-x" in fields:
             mppx = float(fields["openslide.mpp-x"])
         else:
+            # libvips normalizes xres/yres to pixels-per-MILLIMETER internally, regardless of
+            # what resolution-unit the original TIFF declares (confirmed empirically: a SurGen
+            # slide with tiff.XResolution=89940.13 px/cm per openslide reports pyvips xres as
+            # 8994.01 - exactly 1/10th, i.e. px/mm). So mpp (um/px) = 1000 (um/mm) / xres
+            # (px/mm). The previous `10000 / xres` assumed xres was px/cm, inflating mpp 10x -
+            # on slides that hit this fallback (pyvips doesn't expose openslide.mpp-x for every
+            # .svs, even when openslide-python itself reads it fine), MIPHEI-ViT's tiling then
+            # read a native window ~10x too small and upsampled it to fill the model's tile
+            # size, both exploding tile count ~100x AND feeding the model tiles zoomed in ~10x
+            # beyond what it was calibrated for.
             xres = float(fields.get("xres", 1))
-            mppx = 10000 / xres
+            mppx = 1000 / xres
         if "openslide.mpp-y" in fields:
             mppy = float(fields["openslide.mpp-y"])  # fixed: was `mppx = fields["openslide.mpp-x"]`
         else:
             yres = float(fields.get("yres", 1))  # fixed: was reading "xres" into mppx again
-            mppy = 10000 / yres
+            mppy = 1000 / yres
         try:
             n_levels = int(image.get("openslide.level-count"))
         except Exception:
